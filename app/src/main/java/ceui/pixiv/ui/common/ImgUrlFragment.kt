@@ -2,13 +2,13 @@ package ceui.pixiv.ui.common
 
 import android.os.Bundle
 import android.view.View
-import android.widget.ImageView
 import androidx.core.view.isVisible
 import androidx.navigation.fragment.navArgs
 import ceui.lisa.R
 import ceui.lisa.databinding.FragmentImgUrlBinding
 import com.github.panpf.zoomimage.SketchZoomImageView
 import com.google.android.material.progressindicator.CircularProgressIndicator
+
 
 class ImgUrlFragment : ImgDisplayFragment(R.layout.fragment_img_url) {
 
@@ -31,7 +31,6 @@ class ImgUrlFragment : ImgDisplayFragment(R.layout.fragment_img_url) {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        requireActivity().findViewById<ImageView>(R.id.activity_background).isVisible = false
         val infoViews = listOf(
             binding.download,
             binding.toolbarLayout.root,
@@ -49,10 +48,5 @@ class ImgUrlFragment : ImgDisplayFragment(R.layout.fragment_img_url) {
                 binding.toolbarLayout
             )
         }
-    }
-
-    override fun onDestroyView() {
-        requireActivity().findViewById<ImageView>(R.id.activity_background).isVisible = false
-        super.onDestroyView()
     }
 }

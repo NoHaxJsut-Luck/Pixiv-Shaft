@@ -33,18 +33,21 @@
 
         <TextView
             android:id="@+id/user_name"
+            style="@style/textMontserratMedium"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            app:layout_constraintEnd_toStartOf="@+id/end_layout"
             android:layout_marginStart="12dp"
             android:text="@{user.name}"
             android:textColor="@color/text00"
             android:textSize="15sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toStartOf="@+id/end_layout"
             app:layout_constraintStart_toEndOf="@+id/user_icon"
             app:layout_constraintTop_toTopOf="parent" />
 
         <TextView
             android:id="@+id/post_time"
+            style="@style/textMontserratSemiBold"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
@@ -57,58 +60,70 @@
         <FrameLayout
             android:id="@+id/end_layout"
             android:layout_width="wrap_content"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@+id/user_icon"
+            android:layout_height="wrap_content"
             app:layout_constraintBottom_toBottomOf="@+id/user_icon"
-            android:layout_height="wrap_content">
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/user_icon">
 
             <ceui.loxia.ProgressTextButton
                 android:id="@+id/follow"
-                visibleOrGone="@{!user.is_followed()}"
                 style="@style/BlueShiningButton"
-                android:visibility="gone"
+                visibleOrGone="@{!user.is_followed()}"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
                 android:paddingHorizontal="12dp"
                 android:text="@string/follow"
+                android:visibility="gone"
                 app:ptb_progress_stroke_width="3dp"
                 app:ptb_progress_width="14dp" />
 
             <ceui.loxia.ProgressTextButton
                 android:id="@+id/unfollow"
-                visibleOrGone="@{user.is_followed()}"
                 style="@style/RedShiningButton"
-                android:visibility="gone"
+                visibleOrGone="@{user.is_followed()}"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
                 android:paddingHorizontal="12dp"
                 android:text="@string/unfollow"
+                android:visibility="gone"
                 app:ptb_progress_stroke_width="3dp"
                 app:ptb_progress_width="14dp" />
         </FrameLayout>
 
-        <!-- 帖子图片（需要根据宽高比显示） -->
-        <net.csdn.roundview.RoundImageView
-            android:id="@+id/image"
-            loadMedia="@{holder.illust.image_urls.large}"
+        <FrameLayout
+            android:id="@+id/image_layout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:scaleType="centerCrop"
             android:layout_marginTop="12dp"
+            app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/post_time"
-            app:rRadius="6dp" />
+            app:layout_constraintTop_toBottomOf="@+id/post_time">
+
+            <net.csdn.roundview.RoundImageView
+                android:id="@+id/image"
+                loadMedia="@{holder.illust.image_urls.large}"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scaleType="centerCrop"
+                app:rRadius="6dp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/image_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:text="@{holder.illust.title}"
             android:textColor="@color/text00"
             android:textSize="17sp"
-            android:layout_marginTop="8dp"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/image" />
+            app:layout_constraintTop_toBottomOf="@+id/image_layout" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </layout>

@@ -1,5 +1,7 @@
 package ceui.pixiv.ui.common
 
+import android.app.WallpaperManager
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
@@ -20,21 +22,30 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
+import ceui.lisa.R
 import ceui.lisa.databinding.LayoutToolbarBinding
 import ceui.lisa.utils.Common
+import ceui.loxia.copyImageFileToCacheFolder
 import ceui.loxia.findActionReceiverOrNull
 import ceui.loxia.getHumanReadableMessage
 import ceui.loxia.observeEvent
+import ceui.loxia.pushFragment
+import ceui.loxia.requireAppBackground
+import ceui.loxia.requireTaskPool
+import ceui.pixiv.ui.background.BackgroundConfig
+import ceui.pixiv.ui.background.BackgroundType
+import ceui.pixiv.ui.background.ImageCropper
 import ceui.pixiv.ui.task.NamedUrl
-import ceui.pixiv.ui.task.TaskPool
 import ceui.pixiv.ui.task.TaskStatus
 import ceui.pixiv.ui.works.PagedImgActionReceiver
 import ceui.pixiv.ui.works.ToggleToolnarViewModel
 import ceui.pixiv.ui.works.ViewPagerViewModel
-import ceui.pixiv.widgets.alertYesOrCancel
 import ceui.pixiv.utils.animateFadeInQuickly
 import ceui.pixiv.utils.animateFadeOutQuickly
 import ceui.pixiv.utils.setOnClick
+import ceui.pixiv.widgets.MenuItem
+import ceui.pixiv.widgets.alertYesOrCancel
+import ceui.pixiv.widgets.showActionMenu
 import com.blankj.utilcode.util.UriUtils
 import com.github.panpf.sketch.loadImage
 import com.github.panpf.zoomimage.SketchZoomImageView
@@ -46,6 +57,8 @@ import java.io.File
 import java.util.Locale
 
 abstract class ImgDisplayFragment(layoutId: Int) : PixivFragment(layoutId) {
+
+    private lateinit var imageCropper: ImageCropper<ImgDisplayFragment>
 
     protected val viewModel by viewModels<ToggleToolnarViewModel>()
     private val viewPagerViewModel by viewModels<ViewPagerViewModel>(ownerProducer = { requireParentFragment() })
@@ -74,9 +87,14 @@ abstract class ImgDisplayFragment(layoutId: Int) : PixivFragment(layoutId) {
             return
         }
 
+        imageCropper = ImageCropper(
+            this,
+            onCropSuccess = ImgDisplayFragment::onCropSuccess,
+        )
+
         Timber.d("ImgDisplayFragment display img: ${url}")
         val namedUrl = NamedUrl(displayName(), url)
-        val task = TaskPool.getLoadTask(namedUrl, activity.lifecycleScope)
+        val task = requireTaskPool().getLoadTask(namedUrl, activity.lifecycleScope)
         task.result.observe(viewLifecycleOwner) { file ->
             displayImg.loadImage(file)
             downloadButton.setOnClick {
@@ -87,20 +105,67 @@ abstract class ImgDisplayFragment(layoutId: Int) : PixivFragment(layoutId) {
             Common.showLog("sadasd2 cc ${getFileSize(file)}")
         }
         if (parentFragment is ViewPagerFragment) {
-            viewPagerViewModel.downloadEvent.observeEvent(viewLifecycleOwner) { index ->
+            viewPagerViewModel.cropEvent.observeEvent(viewLifecycleOwner) { index ->
                 task.result.value?.let { file ->
-                    performDownload(activity, file)
+                    showActionMenu {
+                        val localFileUri = UriUtils.file2Uri(file)
+                        add(MenuItem("设置为软件背景图") {
+                            viewModel.isVendorLanding = false
+                            imageCropper.startCrop(localFileUri)
+                        })
+                        add(MenuItem("设置为系统壁纸") {
+                            val uri = copyImageFileToCacheFolder(
+                                file,
+                                "wallpaper_from_shaft.png"
+                            )
+                            val intent =
+                                Intent(WallpaperManager.ACTION_CROP_AND_SET_WALLPAPER).apply {
+                                    setDataAndType(uri, "image/*")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+
+                            activity.startActivity(intent)
+                        })
+                        add(MenuItem("Landing Page Preview") {
+                            viewModel.isVendorLanding = true
+                            imageCropper.startCrop(localFileUri)
+                        })
+                    }
                 }
+
             }
+
+            viewPagerViewModel.getDownloadEvent(namedUrl.name)
+                .observeEvent(viewLifecycleOwner) { index ->
+                    val file = task.result.value
+                    if (file != null) {
+                        performDownload(activity, file)
+                    }
+                }
         }
         progressCircular.setUpWithTaskStatus(task.status, viewLifecycleOwner)
+    }
+
+    private fun onCropSuccess(uri: Uri) {
+        requireAppBackground().updateConfig(
+            BackgroundConfig(
+                BackgroundType.SPECIFIC_ILLUST,
+                localFileUri = uri.toString()
+            )
+        )
+        if (viewModel.isVendorLanding) {
+            pushFragment(R.id.navigation_landing)
+        }
     }
 
     private fun performDownload(activity: FragmentActivity, file: File) {
         val imageId = getImageIdInGallery(activity, displayName())
         if (imageId != null) {
             MainScope().launch {
-                val uri = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, imageId.toString())
+                val uri = Uri.withAppendedPath(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    imageId.toString()
+                )
                 val filePath = UriUtils.uri2File(uri)
                 if (alertYesOrCancel("图片已存在，确定覆盖下载吗? 文件路径: ${filePath?.path}")) {
                     deleteImageById(activity, imageId)
@@ -229,24 +294,20 @@ fun CircularProgressIndicator.setUpWithTaskStatus(
     lifecycleOwner: LifecycleOwner
 ) {
     val progressCircular = this
+    retryButton.setOnClick {
+        errorRetry()
+    }
     taskStatus.observe(lifecycleOwner) { status ->
         if (status is TaskStatus.NotStart) {
             progressCircular.isVisible = true
             progressCircular.progress = 0
         } else if (status is TaskStatus.Executing) {
             progressCircular.isVisible = true
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                progressCircular.setProgress(status.percentage, true)
-            } else {
-                progressCircular.progress = status.percentage
-            }
+            progressCircular.setProgress(status.percentage, true)
         } else {
             progressCircular.isVisible = false
         }
         errorLayout.isVisible = status is TaskStatus.Error
-        retryButton.setOnClick {
-            errorRetry()
-        }
         if (status is TaskStatus.Error) {
             errorTitle.text = status.exception.getHumanReadableMessage(context)
         }

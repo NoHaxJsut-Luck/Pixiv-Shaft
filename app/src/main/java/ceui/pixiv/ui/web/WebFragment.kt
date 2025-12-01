@@ -32,7 +32,7 @@ class WebFragment : PixivFragment(R.layout.fragment_web) {
     private val args by navArgs<WebFragmentArgs>()
     private val binding by viewBinding(FragmentWebBinding::bind)
     private val prefStore: MMKV by lazy {
-        MMKV.defaultMMKV()
+        MMKV.mmkvWithID("shaft-session")
     }
 
     private val onBackPressedCallback = object : OnBackPressedCallback(true) {
@@ -76,6 +76,9 @@ class WebFragment : PixivFragment(R.layout.fragment_web) {
         val webSettings: WebSettings = binding.webView.settings
         val refreshLayout = binding.refreshLayout
 
+        val navController = findNavController()
+        val linkHandler = LinkHandler(navController, this)
+
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -98,6 +101,18 @@ class WebFragment : PixivFragment(R.layout.fragment_web) {
                 if (view != null) {
                     refreshLayout.finishRefresh()
                 }
+            }
+
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+                val requestUrlString = request?.url?.toString()
+                if (linkHandler.processLink(requestUrlString)) {
+                    return true // 自己处理了
+                }
+
+                return super.shouldOverrideUrlLoading(view, request)
             }
 
             override fun shouldInterceptRequest(

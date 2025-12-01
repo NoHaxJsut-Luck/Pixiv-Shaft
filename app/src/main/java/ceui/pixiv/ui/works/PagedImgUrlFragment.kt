@@ -48,7 +48,12 @@ class PagedImgUrlFragment : PixivFragment(R.layout.fragment_paged_img_url), Page
 
         val illust = ObjectPool.get<Illust>(args.illustId).value ?: return
         binding.download.setOnClick {
-            viewPagerViewModel.triggerDownloadEvent(binding.pagedViewpager.currentItem)
+            val p = binding.pagedViewpager.currentItem
+            viewPagerViewModel.triggerDownloadEvent(p, buildPixivWorksFileName(args.illustId, p))
+        }
+
+        binding.toolbarLayout.naviMore.setOnClick {
+            viewPagerViewModel.triggerCropEvent(binding.pagedViewpager.currentItem)
         }
 
         binding.pagedViewpager.adapter = object : FragmentStateAdapter(this) {
@@ -70,14 +75,8 @@ class PagedImgUrlFragment : PixivFragment(R.layout.fragment_paged_img_url), Page
                 }
             }
         }
-        binding.pagedViewpager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-            override fun onPageScrolled(
-                position: Int,
-                positionOffset: Float,
-                positionOffsetPixels: Int
-            ) {
-                super.onPageScrolled(position, positionOffset, positionOffsetPixels)
-            }
+        binding.pagedViewpager.registerOnPageChangeCallback(object :
+            ViewPager2.OnPageChangeCallback() {
 
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
@@ -85,9 +84,6 @@ class PagedImgUrlFragment : PixivFragment(R.layout.fragment_paged_img_url), Page
                 binding.toolbarLayout.naviTitle.text = "${position + 1}/${illust.page_count}"
             }
 
-            override fun onPageScrollStateChanged(state: Int) {
-                super.onPageScrollStateChanged(state)
-            }
         })
         if (args.index > 0) {
             binding.pagedViewpager.setCurrentItem(args.index, false)

@@ -3,22 +3,25 @@ package ceui.pixiv.ui.task
 import android.os.Parcelable
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
+import ceui.lisa.R
+import ceui.lisa.database.AppDatabase
+import ceui.lisa.models.ModelObject
+import ceui.lisa.models.ObjectSpec
 import ceui.lisa.utils.Common
 import ceui.loxia.Client
 import ceui.loxia.Illust
 import ceui.loxia.KListShow
-import ceui.lisa.R
 import ceui.loxia.Novel
-import ceui.loxia.launchSuspend
 import ceui.loxia.pushFragment
-import ceui.pixiv.ui.common.PixivFragment
+import ceui.pixiv.db.GeneralEntity
+import ceui.pixiv.db.RecordType
 import ceui.pixiv.ui.common.findCurrentFragmentOrNull
 import ceui.pixiv.ui.common.getFileSize
+import ceui.pixiv.utils.GSON_DEFAULT
+import ceui.pixiv.utils.TokenGenerator
 import com.blankj.utilcode.util.PathUtils
-import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.hjq.toast.ToastUtils
-import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -31,7 +34,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
-import java.util.UUID
 
 object PixivTaskType {
     const val DownloadAll = 1
@@ -45,9 +47,14 @@ data class HumanReadableTask(
     val taskFullName: String,
     val taskType: Int,
     val createdTime: Long,
-) : Parcelable
+) : ModelObject, Parcelable {
+    override val objectUniqueId: Long
+        get() = taskUUID.hashCode().toLong()
+    override val objectType: Int
+        get() = ObjectSpec.HUMAN_READABLE_TASK
+}
 
-open class FetchAllTask<Item, ResponseT: KListShow<Item>>(
+open class FetchAllTask<Item, ResponseT : KListShow<Item>>(
     private val activity: FragmentActivity,
     taskFullName: String,
     taskType: Int,
@@ -55,10 +62,7 @@ open class FetchAllTask<Item, ResponseT: KListShow<Item>>(
 ) {
 
     private val results = mutableListOf<Item>()
-    private val gson = Gson()
-    private val prefStore: MMKV by lazy {
-        MMKV.mmkvWithID("user-tasks")
-    }
+    private val gson = GSON_DEFAULT
 
     init {
         activity.lifecycleScope.launch {
@@ -95,17 +99,32 @@ open class FetchAllTask<Item, ResponseT: KListShow<Item>>(
                         nextPageUrl = response.nextPageUrl
                     }
 
-                    val taskUUID = UUID.randomUUID().toString()
+                    val taskUUID = TokenGenerator.generateToken()
                     // Serialize results to JSON and write to cache file
                     val json = gson.toJson(results)
-                    val cacheFile = File(PathUtils.getInternalAppCachePath(), "task-result-${taskUUID}.text")
+                    val cacheFile =
+                        File(PathUtils.getInternalAppCachePath(), "task-result-${taskUUID}.text")
 
-                    BufferedWriter(OutputStreamWriter(FileOutputStream(cacheFile), "UTF-8")).use { writer ->
+                    BufferedWriter(
+                        OutputStreamWriter(
+                            FileOutputStream(cacheFile), "UTF-8"
+                        )
+                    ).use { writer ->
                         writer.write(json)
                     }
 
-                    val humanReadableTask = HumanReadableTask(taskUUID, taskFullName, taskType, System.currentTimeMillis())
-                    prefStore.putString(taskUUID, gson.toJson(humanReadableTask))
+                    val humanReadableTask = HumanReadableTask(
+                        taskUUID, taskFullName, taskType, System.currentTimeMillis()
+                    )
+
+                    AppDatabase.getAppDatabase(activity).generalDao().insert(
+                        GeneralEntity(
+                            taskUUID.hashCode().toLong(),
+                            gson.toJson(humanReadableTask),
+                            ObjectSpec.USER_TASK,
+                            RecordType.USER_TASK,
+                        )
+                    )
 
                     val fileSize = getFileSize(cacheFile)
                     Common.showLog("FetchAllTask fileSize ${fileSize}")
@@ -122,7 +141,9 @@ open class FetchAllTask<Item, ResponseT: KListShow<Item>>(
     }
 
     open fun onEnd(humanReadableTask: HumanReadableTask, results: List<Item>) {
-        activity.findCurrentFragmentOrNull()?.pushFragment(R.id.navigation_cache_list, CacheFileFragmentArgs(task = humanReadableTask).toBundle())
+        activity.findCurrentFragmentOrNull()?.pushFragment(
+            R.id.navigation_cache_list, CacheFileFragmentArgs(task = humanReadableTask).toBundle()
+        )
         ToastUtils.show("全部结束")
         Common.showLog("FetchAllTask all end ${this.results.size}")
     }
@@ -132,11 +153,14 @@ fun loadIllustsFromCache(taskUUID: String): List<Illust>? {
     val cacheFile = File(PathUtils.getInternalAppCachePath(), "task-result-${taskUUID}.text")
     return if (cacheFile.exists()) {
         try {
-            val json = BufferedReader(InputStreamReader(FileInputStream(cacheFile), "UTF-8")).use { reader ->
+            val json = BufferedReader(
+                InputStreamReader(
+                    FileInputStream(cacheFile), "UTF-8"
+                )
+            ).use { reader ->
                 reader.readText()
             }
-            val type = object : TypeToken<List<Illust>>() {}.type
-            Gson().fromJson<List<Illust>>(json, type)
+            GSON_DEFAULT.fromJson<List<Illust>>(json, object : TypeToken<List<Illust>>() {}.type)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -150,11 +174,14 @@ fun loadNovelsFromCache(taskUUID: String): List<Novel>? {
     val cacheFile = File(PathUtils.getInternalAppCachePath(), "task-result-${taskUUID}.text")
     return if (cacheFile.exists()) {
         try {
-            val json = BufferedReader(InputStreamReader(FileInputStream(cacheFile), "UTF-8")).use { reader ->
+            val json = BufferedReader(
+                InputStreamReader(
+                    FileInputStream(cacheFile), "UTF-8"
+                )
+            ).use { reader ->
                 reader.readText()
             }
-            val type = object : TypeToken<List<Novel>>() {}.type
-            Gson().fromJson<List<Novel>>(json, type)
+            GSON_DEFAULT.fromJson<List<Novel>>(json, object : TypeToken<List<Novel>>() {}.type)
         } catch (e: Exception) {
             e.printStackTrace()
             null

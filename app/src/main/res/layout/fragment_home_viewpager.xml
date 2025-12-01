@@ -33,7 +33,7 @@
                 android:layout_height="wrap_content"
                 app:contentScrim="@color/transparent"
                 app:toolbarId="@+id/toolbar"
-                app:layout_scrollFlags="scroll|exitUntilCollapsed">
+                app:layout_scrollFlags="scroll|exitUntilCollapsed|enterAlways">
 
                 <androidx.constraintlayout.widget.ConstraintLayout
                     android:id="@+id/home_header_content"
@@ -103,6 +103,31 @@
                 </androidx.appcompat.widget.Toolbar>
             </com.google.android.material.appbar.CollapsingToolbarLayout>
 
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:id="@+id/network_state_loading"
+                    android:layout_width="wrap_content"
+                    android:visibility="gone"
+                    android:gravity="center"
+                    android:layout_gravity="center"
+                    android:layout_height="wrap_content">
+
+                    <ProgressBar
+                        android:id="@+id/progress_bar"
+                        android:layout_width="24dp"
+                        android:layout_marginEnd="4dp"
+                        android:layout_height="24dp"/>
+
+                    <TextView
+                        android:textColor="@color/text00"
+                        android:text="连接中"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+            </FrameLayout>
         </com.google.android.material.appbar.AppBarLayout>
 
 

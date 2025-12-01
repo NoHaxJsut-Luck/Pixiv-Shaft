@@ -1,28 +1,36 @@
 package ceui.pixiv.ui.task
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.navigation.fragment.navArgs
 import ceui.lisa.R
-import ceui.lisa.databinding.FragmentPixivListBinding
+import ceui.lisa.databinding.FragmentPagedListBinding
+import ceui.pixiv.paging.pagingViewModel
 import ceui.pixiv.ui.common.ListMode
 import ceui.pixiv.ui.common.PixivFragment
-import ceui.pixiv.ui.common.findCurrentFragmentOrNull
-import ceui.pixiv.ui.common.setUpRefreshState
-import ceui.pixiv.ui.list.pixivListViewModel
-import ceui.pixiv.utils.setOnClick
+import ceui.pixiv.ui.common.setUpPagedList
 import ceui.pixiv.ui.common.viewBinding
-import ceui.pixiv.utils.animateWiggle
-import com.google.gson.Gson
-import com.tencent.mmkv.MMKV
+import ceui.pixiv.ui.works.buildPixivWorksFileName
+import ceui.pixiv.utils.setOnClick
+import ceui.pixiv.widgets.MenuItem
+import ceui.pixiv.widgets.showActionMenu
+import com.blankj.utilcode.util.Utils
 import timber.log.Timber
+import java.io.File
 
-class CacheFileFragment : PixivFragment(R.layout.fragment_pixiv_list) {
+class CacheFileFragment : PixivFragment(R.layout.fragment_paged_list) {
 
-    private val binding by viewBinding(FragmentPixivListBinding::bind)
+    private val binding by viewBinding(FragmentPagedListBinding::bind)
     private val args by navArgs<CacheFileFragmentArgs>()
-    private val prefStore by lazy { MMKV.mmkvWithID("user-tasks") }
-    private val viewModel by pixivListViewModel({ Pair(requireActivity(), args.task) }) { (activity, task) ->
+    private val viewModel by pagingViewModel({
+        Pair(
+            requireActivity(),
+            args.task
+        )
+    }) { (activity, task) ->
         Timber.d("task: ${task}")
         if (task.taskType == PixivTaskType.DownloadSeriesNovels) {
             QueuedNovelTaskDataSource(task, activity)
@@ -33,11 +41,65 @@ class CacheFileFragment : PixivFragment(R.layout.fragment_pixiv_list) {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setUpRefreshState(binding, viewModel, ListMode.VERTICAL)
-        val humanReadableTask = Gson().fromJson(prefStore.getString(args.task.taskUUID, ""), HumanReadableTask::class.java)
-        binding.toolbarLayout.naviTitle.text = humanReadableTask.taskFullName
+        setUpPagedList(binding, viewModel, ListMode.VERTICAL)
+        binding.toolbarLayout.naviTitle.text = args.task.taskFullName
         binding.toolbarLayout.naviMore.setOnClick {
-            TaskQueueManager.startProcessing()
+            showActionMenu {
+                add(MenuItem("开始任务") {
+                    TaskQueueManager.startProcessing()
+                })
+                add(MenuItem("导出下载链接") {
+                    val illustList = loadIllustsFromCache(args.task.taskUUID)
+                    val items = mutableListOf<NamedUrl>()
+                    illustList?.forEach { illust ->
+                        if (illust.page_count == 1) {
+                            illust.meta_single_page?.original_image_url?.let {
+                                items.add(NamedUrl(buildPixivWorksFileName(illust.id), it))
+                            }
+                        } else {
+                            illust.meta_pages?.forEachIndexed { index, page ->
+                                page.image_urls?.original?.let {
+                                    items.add(
+                                        NamedUrl(
+                                            buildPixivWorksFileName(illust.id, index),
+                                            it
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val text = buildString {
+                        items.forEach {
+                            appendLine("${it.name} => ${it.url}")
+                        }
+                    }
+
+                    val cacheDir =
+                        File(Utils.getApp().externalCacheDir, "images").apply { mkdirs() }
+                    val txtFile = File(cacheDir, "pixiv_download_links_${args.task.taskUUID}.txt")
+                    txtFile.writeText(text)
+
+                    Toast.makeText(requireContext(), "链接文件已生成", Toast.LENGTH_SHORT).show()
+
+                    val uri = FileProvider.getUriForFile(
+                        requireContext(),
+                        "ceui.lisa.pixiv.provider", // 你自己的 FileProvider authority
+                        txtFile
+                    )
+
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_TITLE, "Pixiv 原图下载链接")
+                        putExtra(Intent.EXTRA_TEXT, "Pixiv 原图链接列表")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+
+                    startActivity(Intent.createChooser(shareIntent, "分享 Pixiv 下载链接"))
+                })
+            }
         }
     }
 

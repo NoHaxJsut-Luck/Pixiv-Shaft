@@ -15,37 +15,29 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 import ceui.lisa.R
 import ceui.lisa.activities.followUser
 import ceui.lisa.activities.unfollowUser
-import ceui.lisa.databinding.FragmentPixivListBinding
+import ceui.lisa.database.AppDatabase
 import ceui.lisa.databinding.FragmentUserBinding
-import ceui.lisa.utils.GlideUrlChild
 import ceui.lisa.utils.Params
-import ceui.loxia.Illust
-import ceui.loxia.ObjectPool
 import ceui.loxia.ObjectType
 import ceui.loxia.RefreshHint
 import ceui.loxia.RefreshState
-import ceui.loxia.User
+import ceui.loxia.combineLatest
 import ceui.loxia.pushFragment
 import ceui.loxia.requireEntityWrapper
-import ceui.pixiv.db.EntityWrapper
+import ceui.pixiv.db.RecordType
 import ceui.pixiv.ui.chats.SeeMoreAction
 import ceui.pixiv.ui.chats.SeeMoreType
-import ceui.pixiv.ui.circles.SmartFragmentPagerAdapter
 import ceui.pixiv.ui.common.FitsSystemWindowFragment
 import ceui.pixiv.ui.common.PixivFragment
 import ceui.pixiv.ui.common.ViewPagerFragment
 import ceui.pixiv.ui.common.constructVM
 import ceui.pixiv.ui.common.viewBinding
-import ceui.pixiv.ui.detail.ArtworksMap
-import ceui.pixiv.ui.works.blurBackground
 import ceui.pixiv.utils.ppppx
 import ceui.pixiv.utils.setOnClick
+import ceui.pixiv.widgets.MenuItem
+import ceui.pixiv.widgets.showActionMenu
 import com.blankj.utilcode.util.BarUtils
-import com.bumptech.glide.Glide
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade
-import com.bumptech.glide.request.RequestOptions.bitmapTransform
 import com.scwang.smart.refresh.header.MaterialHeader
-import jp.wasabeef.glide.transformations.BlurTransformation
 import timber.log.Timber
 
 class UserFragment : PixivFragment(R.layout.fragment_user), ViewPagerFragment, SeeMoreAction,
@@ -68,23 +60,86 @@ class UserFragment : PixivFragment(R.layout.fragment_user), ViewPagerFragment, S
             binding.headerContent.updatePaddingRelative(top = insets.top + BarUtils.getActionBarHeight())
             windowInsets
         }
-        viewModel.userLiveData.observe(viewLifecycleOwner) { user ->
+
+        val context = requireContext()
+
+        val isNowFavoriteLiveData = AppDatabase.getAppDatabase(context).generalDao()
+            .isUserNowFavorite(RecordType.FAVORITE_USER, safeArgs.userId)
+
+        val userBlockedLiveData = AppDatabase.getAppDatabase(context).generalDao()
+            .isObjectBlocked(RecordType.BLOCK_USER, safeArgs.userId)
+
+        binding.userBlocked = userBlockedLiveData
+
+        combineLatest(
+            viewModel.userLiveData,
+            isNowFavoriteLiveData,
+            userBlockedLiveData,
+        ).observe(viewLifecycleOwner) { (user, isNowFavorite, isUserBlocked) ->
+            if (user == null) {
+                return@observe
+            }
+
             runOnceWithinFragmentLifecycle("visit-user-${safeArgs.userId}") {
-                requireEntityWrapper().visitUser(requireContext(), user)
+                requireEntityWrapper().visitUser(context, user)
             }
             binding.iconOfficial.isVisible = user.isOfficial()
             binding.iconVolunteer.isVisible = user.isVolunteer()
+
+
+            binding.unblockUser.setOnClick {
+                requireEntityWrapper().unblockUser(context, user)
+            }
+
+            binding.naviMore.setOnClick {
+                showActionMenu {
+                    if (isNowFavorite == true) {
+                        add(MenuItem("移除特别关注") {
+                            requireEntityWrapper().removeFavoriteUser(context, user)
+                        })
+                    } else {
+                        add(MenuItem("添加到特别关注") {
+                            requireEntityWrapper().addUserToFavorite(context, user)
+                        })
+                    }
+
+                    if (isUserBlocked == true) {
+                        add(MenuItem("取消屏蔽此作者") {
+                            requireEntityWrapper().unblockUser(context, user)
+                        })
+                    } else {
+                        add(MenuItem("屏蔽此作者的内容") {
+                            requireEntityWrapper().blockUser(context, user)
+                        })
+
+                    }
+                }
+            }
         }
         viewModel.userProfile.observe(viewLifecycleOwner) { profile ->
             binding.iconPrime.isVisible = profile.isPremium()
         }
-        viewModel.blurBackground.observe(viewLifecycleOwner) { blurIllust ->
-            val url = blurIllust?.image_urls?.large
-            if (url?.isNotEmpty() == true) {
-                Glide.with(this).load(GlideUrlChild(url))
-                    .apply(bitmapTransform(BlurTransformation(15, 3))).transition(withCrossFade())
-                    .into(binding.pageBackground)
-            }
+//        viewModel.blurBackground.observe(viewLifecycleOwner) { blurIllust ->
+//            val url = blurIllust?.image_urls?.large
+//            if (url?.isNotEmpty() == true) {
+//                Glide.with(this).load(GlideUrlChild(url))
+//                    .apply(bitmapTransform(BlurTransformation(15, 3))).transition(withCrossFade())
+//                    .into(binding.pageBackground)
+//            }
+//        }
+        binding.followingLayout.setOnClick {
+            pushFragment(
+                R.id.navigation_user_following_list, UserFollowingFragmentArgs(
+                    safeArgs.userId,
+                    Params.TYPE_PUBLIC
+                ).toBundle()
+            )
+        }
+        binding.followersLayout.setOnClick {
+            pushFragment(
+                R.id.navigation_user_fans,
+                UserFansFragmentArgs(safeArgs.userId).toBundle()
+            )
         }
         binding.postFollow.setOnClick {
             followUser(it, safeArgs.userId.toInt(), Params.TYPE_PUBLIC)

@@ -7,60 +7,49 @@ import androidx.navigation.fragment.findNavController
 import ceui.lisa.R
 import ceui.lisa.activities.Shaft
 import ceui.lisa.databinding.FragmentPixivListBinding
-import ceui.loxia.Client
+import ceui.lisa.utils.Common
 import ceui.loxia.ObjectPool
 import ceui.loxia.ProgressIndicator
 import ceui.loxia.User
 import ceui.loxia.launchSuspend
 import ceui.loxia.pushFragment
+import ceui.loxia.requireAppBackground
+import ceui.loxia.requireTaskPool
 import ceui.pixiv.session.SessionManager
+import ceui.pixiv.ui.background.BackgroundType
 import ceui.pixiv.ui.common.ListMode
 import ceui.pixiv.ui.common.PixivFragment
 import ceui.pixiv.ui.common.TabCellHolder
-import ceui.pixiv.ui.common.pixivValueViewModel
 import ceui.pixiv.ui.common.setUpCustomAdapter
-import ceui.pixiv.ui.web.WebFragmentArgs
-import ceui.pixiv.widgets.alertYesOrCancel
 import ceui.pixiv.ui.common.viewBinding
+import ceui.pixiv.ui.web.WebFragmentArgs
+import ceui.pixiv.utils.GSON_DEFAULT
+import ceui.pixiv.widgets.alertYesOrCancel
 import com.tencent.mmkv.MMKV
-import timber.log.Timber
 
 class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActionReceiver {
 
     private val binding by viewBinding(FragmentPixivListBinding::bind)
     private val prefStore: MMKV by lazy {
-        MMKV.defaultMMKV()
+        MMKV.mmkvWithID("shaft-session")
     }
-    private val viewModel by pixivValueViewModel {
-        Client.appApi.getSelfProfile()
-    }
+
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        viewModel.result.observe(viewLifecycleOwner) {
-            Timber.d("getSelfProfile ${it}")
-        }
+
         val adapter = setUpCustomAdapter(binding, ListMode.VERTICAL_TABCELL)
         binding.toolbarLayout.naviTitle.text = getString(R.string.app_settings)
         val liveUser = ObjectPool.get<User>(SessionManager.loggedInUid)
-        val cookies = prefStore.getString(SessionManager.COOKIE_KEY, "") ?: ""
-        val nameCode = prefStore.getString(SessionManager.CONTENT_LANGUAGE_KEY, "cn") ?: "cn"
+        prefStore.getString(SessionManager.COOKIE_KEY, "") ?: ""
+//        val nameCode = prefStore.getString(SessionManager.CONTENT_LANGUAGE_KEY, "cn") ?: "cn"
+        val nameCode = "cn"
+        val context = requireActivity()
+        val backgroundType = requireAppBackground().config.value?.type
 
         liveUser.observe(viewLifecycleOwner) { user ->
             adapter.submitList(
                 listOf(
-                    TabCellHolder(
-                        getString(R.string.sync_cookies_with_pixiv_net),
-                        getString(R.string.can_use_web_features_after_sync),
-                        if (cookies.isNotEmpty()) getString(R.string.cookie_sync_has_been_done) else getString(
-                            R.string.cookie_was_not_synced
-                        )
-                    ).onItemClick {
-                        pushFragment(
-                            R.id.navigation_web_fragment,
-                            WebFragmentArgs("https://www.pixiv.net/", saveCookies = true).toBundle()
-                        )
-                    },
                     TabCellHolder(
                         getString(R.string.view_and_artworks_display),
                         getString(R.string.handle_r18g_displaying)
@@ -70,6 +59,22 @@ class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActi
                             WebFragmentArgs("https://www.pixiv.net/settings/viewing").toBundle()
                         )
                     },
+
+                    TabCellHolder(
+                        getString(R.string.app_background),
+                        extraInfo = if (backgroundType == BackgroundType.SPECIFIC_ILLUST) {
+                            getString(R.string.background_specified_illust)
+                        } else if (backgroundType == BackgroundType.LOCAL_FILE) {
+                            getString(R.string.background_chosen_from_gallary)
+                        } else {
+                            backgroundType?.toString()
+                        }
+                    ).onItemClick {
+                        pushFragment(
+                            R.id.navigation_background_settings,
+                        )
+                    },
+
                     TabCellHolder(
                         getString(R.string.country_and_region),
                         getString(R.string.handle_content_language),
@@ -90,6 +95,42 @@ class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActi
                         )
                     },
 
+                    TabCellHolder(
+                        getString(R.string.export_refresh_token),
+                        extraInfo = SessionManager.loggedInAccount.value?.refresh_token,
+                    ).onItemClick {
+                        SessionManager.loggedInAccount.value?.refresh_token?.let { token ->
+                            Common.copy(context, token)
+                        }
+                    },
+
+                    TabCellHolder(
+                        getString(R.string.export_logged_in_user_json),
+                        extraInfo = "[JSON FORMATTED]"
+                    ).onItemClick {
+                        SessionManager.loggedInAccount.value?.let { account ->
+                            Common.copy(context, GSON_DEFAULT.toJson(account))
+                        }
+                    },
+
+
+                    TabCellHolder(
+                        "Landing Page Preview",
+                    ).onItemClick {
+                        pushFragment(
+                            R.id.navigation_landing,
+                        )
+                    },
+
+
+                    TabCellHolder(
+                        getString(R.string.full_about_app),
+                    ).onItemClick {
+                        pushFragment(
+                            R.id.navigation_about_app,
+                        )
+                    },
+
                     LogOutHolder()
                 )
             )
@@ -98,7 +139,11 @@ class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActi
 
     override fun onClickLogOut(sender: ProgressIndicator) {
         launchSuspend(sender) {
+            val taskPool = requireTaskPool()
+            val prefStore = MMKV.mmkvWithID("api-cache-${SessionManager.loggedInUid}")
             if (alertYesOrCancel("确定退出登录吗")) {
+                prefStore.clearAll()
+                taskPool.clearTasks()
                 SessionManager.updateSession(null)
                 findNavController().navigate(
                     R.id.navigation_landing,

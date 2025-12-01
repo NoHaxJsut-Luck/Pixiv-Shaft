@@ -4,17 +4,20 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import ceui.lisa.models.ModelObject
 import ceui.loxia.Client
+import ceui.loxia.Event
 import ceui.loxia.KListShow
 import ceui.loxia.RefreshHint
 import ceui.loxia.RefreshState
 import ceui.pixiv.ui.detail.ArtworksMap
-import com.google.gson.Gson
+import ceui.pixiv.utils.GSON_DEFAULT
+import ceui.pixiv.utils.TokenGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
-open class DataSource<Item, T: KListShow<Item>>(
+open class DataSource<Item, T : KListShow<Item>>(
     private val dataFetcher: suspend () -> T,
     private val responseStore: ResponseStore<T>? = null,
     itemMapper: (Item) -> List<ListItemHolder>,
@@ -32,14 +35,26 @@ open class DataSource<Item, T: KListShow<Item>>(
     val itemHoldersImpl: LiveData<List<ListItemHolder>> = _itemHolders
 
     private var _nextPageUrl: String? = null
-    private val gson = Gson()
 
     private var responseClass: Class<T>? = null
 
     private val _refreshState = MutableLiveData<RefreshState>()
     val refreshStateImpl: LiveData<RefreshState> = _refreshState
 
+    private val _taskMutex = Mutex() // 互斥锁，防止重复刷新
+
+    private val _remoteDataSyncedEvent = MutableLiveData<Event<Long>>()
+    val remoteDataSyncedEventImpl: LiveData<Event<Long>> = _remoteDataSyncedEvent
+
     open suspend fun refreshImpl(hint: RefreshHint) {
+        if (!_taskMutex.tryLock()) {
+            Timber.e("DataSource refresh tryLock returned")
+            return // 如果当前已有刷新任务在执行，则直接返回
+        }
+
+        val requestToken = TokenGenerator.generateToken()
+        Timber.e("DataSource refresh tryLock passed: ${requestToken}")
+
         _refreshState.value = RefreshState.LOADING(refreshHint = hint)
         try {
             if (hint == RefreshHint.ErrorRetry) {
@@ -54,19 +69,33 @@ open class DataSource<Item, T: KListShow<Item>>(
 
             if (hint == RefreshHint.PullToRefresh ||
                 hint == RefreshHint.ErrorRetry ||
+                hint == RefreshHint.FetchingLatest ||
                 responseStore == null ||
                 responseStore.isCacheExpired()
-             ) {
+            ) {
+                val isCachedDataExisting = _itemHolders.value?.isNotEmpty() == true
+                if ((hint == RefreshHint.InitialLoad || hint == RefreshHint.FetchingLatest) && isCachedDataExisting) {
+                    delay(600L)
+                    _refreshState.value = RefreshState.FETCHING_LATEST()
+                    delay(1000L)
+                }
+
                 val response = withContext(Dispatchers.IO) {
                     dataFetcher().also {
                         responseStore?.writeToCache(it)
                     }
                 }
                 applyResponse(response, false)
+                if ((hint == RefreshHint.InitialLoad || hint == RefreshHint.PullToRefresh) && isCachedDataExisting) {
+                    delay(30)
+                    _remoteDataSyncedEvent.postValue(Event(System.currentTimeMillis()))
+                }
             }
         } catch (ex: Exception) {
             _refreshState.value = RefreshState.ERROR(ex)
             Timber.e(ex)
+        } finally {
+            _taskMutex.unlock() // 释放锁
         }
     }
 
@@ -78,10 +107,7 @@ open class DataSource<Item, T: KListShow<Item>>(
         _nextPageUrl = response.nextPageUrl
         currentProtoItems.addAll(response.displayList)
         mapProtoItemsToHolders()
-        _refreshState.value = RefreshState.LOADED(
-            hasContent = _itemHolders.value?.isNotEmpty() == true,
-            hasNext = hasNext()
-        )
+        updateRefreshState()
     }
 
     fun hasNext(): Boolean {
@@ -95,7 +121,7 @@ open class DataSource<Item, T: KListShow<Item>>(
             val response = withContext(Dispatchers.IO) {
                 val responseBody = Client.appApi.generalGet(nextPageUrl)
                 val responseJson = responseBody.string()
-                gson.fromJson(responseJson, responseClass)
+                GSON_DEFAULT.fromJson(responseJson, responseClass)
             }
             applyResponse(response, true)
         } catch (ex: Exception) {
@@ -131,7 +157,11 @@ open class DataSource<Item, T: KListShow<Item>>(
         }
     }
 
-    private fun mapProtoItemsToHolders() {
+    fun updateMapper(mapper: (Item) -> List<ListItemHolder>) {
+        this._variableItemMapper = mapper
+    }
+
+    fun mapProtoItemsToHolders() {
         val mapper = _variableItemMapper ?: return
         val holders = currentProtoItems
             .filter { item ->
@@ -147,6 +177,13 @@ open class DataSource<Item, T: KListShow<Item>>(
 
     protected fun pickItemHolders(): MutableLiveData<List<ListItemHolder>> {
         return _itemHolders
+    }
+
+    protected fun updateRefreshState() {
+        _refreshState.value = RefreshState.LOADED(
+            hasContent = _itemHolders.value?.isNotEmpty() == true,
+            hasNext = hasNext()
+        )
     }
 
     open fun initialLoad(): Boolean {

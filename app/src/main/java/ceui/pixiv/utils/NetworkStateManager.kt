@@ -5,16 +5,18 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Build
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import android.os.Build
+import ceui.loxia.RefreshState
 import ceui.pixiv.utils.NetworkStateManager.NetworkType
+import kotlinx.coroutines.flow.flowOf
 
 interface INetworkState {
     val networkState: LiveData<NetworkType>
 }
 
-class NetworkStateManager(context: Context) : INetworkState {
+class NetworkStateManager(private val context: Context) : INetworkState {
 
     enum class NetworkType {
         WIFI,
@@ -22,8 +24,24 @@ class NetworkStateManager(context: Context) : INetworkState {
         NONE
     }
 
+    private val accessGoogleTask = AccessGoogleTask()
+
+    val refreshState: LiveData<RefreshState>
+        get() {
+            return accessGoogleTask.refreshState
+        }
     private val _networkState = MutableLiveData(NetworkType.NONE)
     override val networkState: LiveData<NetworkType> get() = _networkState
+
+    val canAccessGoogle: LiveData<Boolean> = accessGoogleTask.canAccessGoogle
+
+    //    val googleAccessRecoveredFlow: Flow<Boolean> = accessGoogleTask.canAccessGoogleFlow
+//        .scan(false to false) { acc, current ->
+//            acc.second to current
+//        }
+//        .filter { (previous, current) -> !previous && current }
+//        .map { true } // 只在 false -> true 时 emit true
+    val googleAccessRecoveredFlow = flowOf(true)
 
     private val connectivityManager: ConnectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -37,7 +55,10 @@ class NetworkStateManager(context: Context) : INetworkState {
             updateNetworkType(null)
         }
 
-        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+        override fun onCapabilitiesChanged(
+            network: Network,
+            networkCapabilities: NetworkCapabilities
+        ) {
             updateNetworkType(network)
         }
     }
@@ -79,5 +100,10 @@ class NetworkStateManager(context: Context) : INetworkState {
             else -> NetworkType.NONE
         }
         _networkState.postValue(networkType)
+        checkIfCanAccessGoogle()
+    }
+
+    fun checkIfCanAccessGoogle() {
+        accessGoogleTask.checkIfCanAccessGoogle()
     }
 }

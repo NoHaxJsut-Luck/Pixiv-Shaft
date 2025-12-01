@@ -1,43 +1,184 @@
 package ceui.pixiv.ui.common
 
 import android.animation.Animator
+import android.animation.ValueAnimator
+import android.content.Intent
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.OvershootInterpolator
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.lifecycleScope
+import androidx.core.graphics.drawable.toDrawable
+import androidx.core.graphics.toColorInt
+import androidx.core.net.toUri
+import androidx.core.view.isVisible
+import androidx.navigation.findNavController
+import ceui.lisa.R
 import ceui.lisa.databinding.ActivityHomeBinding
 import ceui.loxia.observeEvent
+import ceui.loxia.requireAppBackground
 import ceui.pixiv.session.SessionManager
-import ceui.pixiv.utils.INetworkState
-import ceui.pixiv.utils.NetworkStateManager
+import ceui.pixiv.ui.background.BackgroundConfig
+import ceui.pixiv.ui.background.BackgroundType
+import ceui.pixiv.ui.web.LinkHandler
 import ceui.pixiv.utils.ppppx
-import com.tencent.mmkv.MMKV
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade
+import com.jaredrummler.android.colorpicker.ColorPickerDialogListener
 import timber.log.Timber
 
-class HomeActivity : AppCompatActivity(), INetworkState {
+class HomeActivity : AppCompatActivity(), GrayToggler, ColorPickerDialogListener {
 
     private lateinit var binding: ActivityHomeBinding
-    private val _networkStateManager by lazy { NetworkStateManager(this) }
+    private val homeViewModel: HomeViewModel by viewModels {
+        HomeViewModelFactory(assets)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        _networkStateManager
-        enableEdgeToEdge()
-
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
         binding = ActivityHomeBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        val navController = findNavController(R.id.nav_host_fragment_activity_main)
+        val graph = navController.navInflater.inflate(R.navigation.mobile_navigation)
+        val startDestination = if (SessionManager.isLoggedIn) {
+            R.id.navigation_home_viewpager
+        } else {
+            R.id.navigation_landing
+        }
+        graph.setStartDestination(startDestination)
+        navController.graph = graph
+        val appBackground = requireAppBackground()
+
+        navController.addOnDestinationChangedListener { controller, destination, arguments ->
+            val destId = destination.id
+            if (destination.id == R.id.navigation_img_url || destination.id == R.id.navigation_paged_img_urls) {
+                binding.pageBackground.isVisible = false
+                binding.dimmer.isVisible = false
+            } else {
+                binding.pageBackground.isVisible = true
+                binding.dimmer.isVisible = appBackground.config.value?.type != BackgroundType.COLOR
+            }
+
+            if (!SessionManager.isLoggedIn) {
+                homeViewModel.onDestinationChanged(destId)
+            }
+        }
+        if (!SessionManager.isLoggedIn) {
+            homeViewModel.currentScale.observe(this) {
+                animateBackground(it)
+            }
+        }
         SessionManager.newTokenEvent.observeEvent(this) {
             triggerOnce()
         }
+
+        homeViewModel.grayDisplay.observe(this) { gray -> animateGrayTransition(gray) }
+//
+//        lifecycleScope.launch {
+//            TaskQueueManager.addTasks(
+//                listOf(
+//                    "73205835",
+//                    "57114102",
+//                    "113558722",
+//                    "100339369",
+//                    "111919854",
+//                    "122170012",
+//                ).mapNotNull {
+//                    it.toLongOrNull()?.let {
+//                        LandingPreviewTask(lifecycleScope, it)
+//                    }
+//                })
+//
+//            TaskQueueManager.startProcessing()
+//        }
+
+        SessionManager.loggedInAccount.observe(this) { account ->
+            if (account.access_token?.isNotEmpty() == true) {
+                homeViewModel.endTask()
+            }
+        }
+
+        binding.dimmer.isVisible = true
+
+        if (SessionManager.loggedInUid > 0L) {
+            binding.pageBackground2.isVisible = false
+            appBackground.config.observe(this) { config ->
+                if (config.type == BackgroundType.COLOR && config.colorHexString !== null) {
+                    Glide.with(this)
+                        .load(config.colorHexString.toColorInt().toDrawable())
+                        .transition(withCrossFade())
+                        .into(binding.pageBackground)
+                    binding.dimmer.isVisible = false
+                } else {
+                    Glide.with(this)
+                        .load(config.localFileUri)
+                        .transition(withCrossFade())
+                        .into(binding.pageBackground)
+                    binding.dimmer.isVisible = true
+                }
+            }
+        } else {
+            binding.pageBackground2.isVisible = true
+            binding.dimmer.isVisible = true
+            homeViewModel.startTask()
+            homeViewModel.landingBackgroundFile.observe(this) { file ->
+                val (fadeOutView, fadeInView) = if (showingFirst) {
+                    binding.pageBackground to binding.pageBackground2
+                } else {
+                    binding.pageBackground2 to binding.pageBackground
+                }
+
+                appBackground.updateConfig(
+                    BackgroundConfig(
+                        BackgroundType.SPECIFIC_ILLUST,
+                        localFileUri = file.toUri().toString()
+                    )
+                )
+
+                Glide.with(this)
+                    .load(file)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .skipMemoryCache(false)
+                    .into(fadeInView)
+
+                fadeOutView.animate()
+                    .alpha(0f)
+                    .setDuration(2000L)
+                    .start()
+
+                fadeInView.animate()
+                    .alpha(1f)
+                    .setDuration(2000L)
+                    .start()
+
+                showingFirst = !showingFirst
+            }
+        }
+
+
+        handleIntentLink(intent, "onCreate")
+    }
+
+    private var showingFirst = true
+
+    private fun animateBackground(scale: Float) {
+        binding.pageBackground.animate()
+            .scaleX(scale)
+            .scaleY(scale)
+            .setDuration(1000)
+            .setInterpolator(OvershootInterpolator(1.1f))
+            .start()
     }
 
     private fun triggerOnce() {
@@ -72,7 +213,6 @@ class HomeActivity : AppCompatActivity(), INetworkState {
 
     private fun triggerTouchOnce(x1: Int, y1: Int) {
         val lottieView = binding.clickEvent
-        Timber.d("TouchEvent 点击位置: x=$x1, y=$y1")
         val halfWidth = 80.ppppx
         lottieView.x = x1.toFloat() - halfWidth
         lottieView.y = y1.toFloat() - halfWidth
@@ -133,12 +273,55 @@ class HomeActivity : AppCompatActivity(), INetworkState {
         return super.dispatchTouchEvent(event)
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        _networkStateManager.unregisterNetworkCallback()
+    private fun animateGrayTransition(toGray: Boolean) {
+        val start = if (toGray) 1f else 0f
+        val end = if (toGray) 0f else 1f
+
+        val animator = ValueAnimator.ofFloat(start, end)
+        animator.duration = 400
+        animator.addUpdateListener {
+            val saturation = it.animatedValue as Float
+            val matrix = ColorMatrix().apply { setSaturation(saturation) }
+            val paint = Paint().apply {
+                colorFilter = ColorMatrixColorFilter(matrix)
+            }
+            window.decorView.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+        }
+        animator.start()
     }
 
-    override val networkState: LiveData<NetworkStateManager.NetworkType> get() {
-        return _networkStateManager.networkState
+
+    override fun toggleGrayMode() {
+        homeViewModel.toggleGrayModeImpl()
+    }
+
+    private fun handleIntentLink(intent: Intent?, fromWhere: String) {
+        val link = intent?.data?.toString()
+        if (link.isNullOrEmpty()) return
+
+        val navController = findNavController(R.id.nav_host_fragment_activity_main)
+        val linkHandler = LinkHandler(navController)
+        Timber.d("handleIntentLink: from: ${fromWhere}")
+        linkHandler.processLink(link)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+
+        handleIntentLink(intent, " onNewIntent")
+    }
+
+    override fun onColorSelected(dialogId: Int, color: Int) {
+        val hex = String.format("#%06X", 0xFFFFFF and color)
+        requireAppBackground().updateConfig(
+            BackgroundConfig(
+                BackgroundType.COLOR,
+                localFileUri = null,
+                colorHexString = hex
+            )
+        )
+    }
+
+    override fun onDialogDismissed(dialogId: Int) {
     }
 }

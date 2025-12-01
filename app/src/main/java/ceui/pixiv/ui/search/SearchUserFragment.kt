@@ -4,49 +4,33 @@ import android.os.Bundle
 import android.view.View
 import androidx.fragment.app.viewModels
 import ceui.lisa.R
-import ceui.lisa.databinding.FragmentPixivListBinding
+import ceui.lisa.databinding.FragmentPagedListBinding
 import ceui.loxia.Client
-import ceui.loxia.RefreshHint
-import ceui.loxia.UserPreview
-import ceui.loxia.UserPreviewResponse
 import ceui.loxia.observeEvent
-import ceui.pixiv.ui.common.DataSource
+import ceui.pixiv.paging.PagingUserAPIRepository
+import ceui.pixiv.paging.pagingViewModel
 import ceui.pixiv.ui.common.ListMode
 import ceui.pixiv.ui.common.PixivFragment
-import ceui.pixiv.ui.common.setUpRefreshState
-import ceui.pixiv.ui.list.pixivListViewModel
-import ceui.pixiv.ui.user.UserPreviewHolder
+import ceui.pixiv.ui.common.setUpPagedList
 import ceui.pixiv.ui.common.viewBinding
 
-class SearchUserSource(
-    private val keywordProvider: () -> String
-) : DataSource<UserPreview, UserPreviewResponse>(
-    dataFetcher = {
-        val keyword = keywordProvider()
-        Client.appApi.searchUser(keyword)
-    },
-    itemMapper = { preview -> listOf(UserPreviewHolder(preview)) }
-) {
-    override fun initialLoad(): Boolean {
-        return keywordProvider().isNotEmpty()
-    }
-}
 
-class SearchUserFragment : PixivFragment(R.layout.fragment_pixiv_list) {
+class SearchUserFragment : PixivFragment(R.layout.fragment_paged_list) {
 
-    private val binding by viewBinding(FragmentPixivListBinding::bind)
+    private val binding by viewBinding(FragmentPagedListBinding::bind)
     private val searchViewModel by viewModels<SearchViewModel>(ownerProducer = { requireParentFragment() })
-    private val viewModel by pixivListViewModel {
-        SearchUserSource {
-            searchViewModel.tagList.value?.map { it.name }?.joinToString(separator = " ") ?: ""
+    private val viewModel by pagingViewModel({ searchViewModel }) { vm ->
+        PagingUserAPIRepository {
+            val keyword = vm.tagList.value?.map { it.name }?.joinToString(separator = " ") ?: ""
+            Client.appApi.searchUser(keyword)
         }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setUpRefreshState(binding, viewModel, ListMode.VERTICAL)
+        setUpPagedList(binding, viewModel, ListMode.VERTICAL)
         searchViewModel.searchUserEvent.observeEvent(viewLifecycleOwner) {
-            viewModel.refresh(RefreshHint.InitialLoad)
+            viewModel.refresh()
         }
     }
 }

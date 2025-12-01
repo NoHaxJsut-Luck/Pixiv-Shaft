@@ -9,7 +9,7 @@ import androidx.core.view.isVisible
 import androidx.databinding.BindingAdapter
 import androidx.navigation.fragment.navArgs
 import ceui.lisa.R
-import ceui.lisa.databinding.FragmentPixivListBinding
+import ceui.lisa.databinding.FragmentPagedListBinding
 import ceui.lisa.utils.GlideUrlChild
 import ceui.lisa.utils.Params
 import ceui.loxia.Client
@@ -17,14 +17,15 @@ import ceui.loxia.Illust
 import ceui.loxia.ObjectPool
 import ceui.loxia.User
 import ceui.loxia.UserResponse
+import ceui.pixiv.paging.PagingUserAPIRepository
+import ceui.pixiv.paging.pagingViewModel
 import ceui.pixiv.session.SessionManager
-import ceui.pixiv.ui.common.DataSource
-import ceui.pixiv.ui.common.PixivFragment
-import ceui.pixiv.ui.list.pixivListViewModel
 import ceui.pixiv.ui.common.ListMode
+import ceui.pixiv.ui.common.PixivFragment
 import ceui.pixiv.ui.common.TitledViewPagerFragment
 import ceui.pixiv.ui.common.pixivValueViewModel
-import ceui.pixiv.ui.common.setUpRefreshState
+import ceui.pixiv.ui.common.repo.RemoteRepository
+import ceui.pixiv.ui.common.setUpPagedList
 import ceui.pixiv.ui.common.viewBinding
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.GlideException
@@ -34,39 +35,41 @@ import com.bumptech.glide.request.RequestOptions.bitmapTransform
 import com.bumptech.glide.request.target.Target
 import jp.wasabeef.glide.transformations.BlurTransformation
 
-class UserFollowingFragment : PixivFragment(R.layout.fragment_pixiv_list) {
+class UserFollowingFragment : PixivFragment(R.layout.fragment_paged_list) {
 
-    private val binding by viewBinding(FragmentPixivListBinding::bind)
-    private val args by navArgs<UserFollowingFragmentArgs>()
-    private val viewModel by pixivListViewModel {
-        DataSource(
-            dataFetcher = { Client.appApi.getFollowingUsers(args.userId, args.restrictType) },
-            itemMapper = { preview -> listOf(UserPreviewHolder(preview)) }
-        )
-    }
-    private val contentViewModel by pixivValueViewModel {
-        val rest = if (args.restrictType == Params.TYPE_PRIVATE) {
-            "hide"
-        } else {
-            "show"
+    private val binding by viewBinding(FragmentPagedListBinding::bind)
+    private val safeArgs by navArgs<UserFollowingFragmentArgs>()
+    private val viewModel by pagingViewModel({ safeArgs }) { args ->
+        PagingUserAPIRepository {
+            Client.appApi.getFollowingUsers(args.userId, args.restrictType)
         }
-        Client.webApi.getRelatedUsers(SessionManager.loggedInUid, "following", rest)
+    }
+    private val contentViewModel by pixivValueViewModel({ safeArgs }) { args ->
+        RemoteRepository {
+            val rest = if (args.restrictType == Params.TYPE_PRIVATE) {
+                "hide"
+            } else {
+                "show"
+            }
+            Client.webApi.getRelatedUsers(SessionManager.loggedInUid, "following", rest)
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setUpRefreshState(binding, viewModel, ListMode.VERTICAL)
-        if (args.userId == SessionManager.loggedInUid) {
-            if (args.restrictType == Params.TYPE_PUBLIC) {
-                ObjectPool.get<UserResponse>(args.userId).observe(viewLifecycleOwner) { user ->
+        setUpPagedList(binding, viewModel, ListMode.VERTICAL)
+        if (safeArgs.userId == SessionManager.loggedInUid) {
+            if (safeArgs.restrictType == Params.TYPE_PUBLIC) {
+                ObjectPool.get<UserResponse>(safeArgs.userId).observe(viewLifecycleOwner) { user ->
                     (parentFragment as? TitledViewPagerFragment)?.let {
                         it.getTitleLiveData(0).value =
                             "${getString(R.string.string_391)} (${user.profile?.total_follow_users ?: 0})"
                     }
                 }
-            } else if (args.restrictType == Params.TYPE_PRIVATE) {
-                contentViewModel.result.observe(viewLifecycleOwner) { result ->
+            } else if (safeArgs.restrictType == Params.TYPE_PRIVATE) {
+                contentViewModel.result.observe(viewLifecycleOwner) { loadResult ->
                     (parentFragment as? TitledViewPagerFragment)?.let {
+                        val result = loadResult?.data ?: return@observe
                         it.getTitleLiveData(1).value =
                             "${getString(R.string.string_392)} (${result.body?.total ?: 0})"
                     }
@@ -131,6 +134,7 @@ fun ImageView.binding_loadSquareMedia(illust: Illust?) {
     Glide.with(this)
         .load(GlideUrlChild(url))
         .placeholder(R.drawable.image_place_holder_r2)
+        .transition(withCrossFade())
         .into(this)
 }
 
@@ -141,6 +145,7 @@ fun ImageView.binding_loadMedia(displayUrl: String?) {
     Glide.with(this)
         .load(GlideUrlChild(url))
         .placeholder(R.drawable.image_place_holder)
+        .transition(withCrossFade())
         .into(this)
 }
 

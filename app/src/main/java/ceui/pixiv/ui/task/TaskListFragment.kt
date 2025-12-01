@@ -3,70 +3,71 @@ package ceui.pixiv.ui.task
 import android.os.Bundle
 import android.view.View
 import ceui.lisa.R
-import ceui.lisa.databinding.FragmentPixivListBinding
+import ceui.lisa.database.AppDatabase
+import ceui.lisa.databinding.FragmentPagedListBinding
 import ceui.loxia.Illust
 import ceui.loxia.KListShow
 import ceui.loxia.pushFragment
-import ceui.pixiv.ui.common.DataSource
+import ceui.pixiv.db.RecordType
+import ceui.pixiv.paging.PagingAPIRepository
+import ceui.pixiv.paging.pagingViewModel
+import ceui.pixiv.ui.common.ListItemHolder
 import ceui.pixiv.ui.common.ListMode
 import ceui.pixiv.ui.common.PixivFragment
 import ceui.pixiv.ui.common.findCurrentFragmentOrNull
-import ceui.pixiv.ui.common.setUpRefreshState
-import ceui.pixiv.ui.list.pixivListViewModel
+import ceui.pixiv.ui.common.setUpPagedList
 import ceui.pixiv.ui.common.viewBinding
 import ceui.pixiv.utils.setOnClick
-import com.google.gson.Gson
-import com.tencent.mmkv.MMKV
-import timber.log.Timber
 
-class TaskListFragment : PixivFragment(R.layout.fragment_pixiv_list), TaskPreviewActionReceiver {
+class TaskListFragment : PixivFragment(R.layout.fragment_paged_list), TaskPreviewActionReceiver {
 
-    private val prefStore by lazy { MMKV.mmkvWithID("user-tasks") }
-    private val binding by viewBinding(FragmentPixivListBinding::bind)
-    private val viewModel by pixivListViewModel {
-        val maps = hashMapOf<String, List<Illust>>()
-        DataSource(
-            dataFetcher = {
-                val gson = Gson()
-                val humanReadableTasks = prefStore.allKeys()
-                    ?.mapNotNull { uuid ->
-                        val illusts = loadIllustsFromCache(uuid) ?: listOf()
-                        maps[uuid] = illusts
-                        prefStore.getString(uuid, "")?.let {
-                            try {
-                                val task = gson.fromJson(it, HumanReadableTask::class.java)
-                                Timber.d("task $task")
-                                task
-                            } catch (ex: Exception) {
-                                Timber.e(ex)
-                                null
-                            }
-                        }
-                    }
-                    ?: emptyList()
-
-                object : KListShow<HumanReadableTask> {
-                    override val displayList: List<HumanReadableTask>
-                        get() = humanReadableTasks.sortedByDescending { it.createdTime }
-                    override val nextPageUrl: String?
-                        get() = null
-                }
-            },
-            itemMapper = { task ->
-                listOf(TaskPreviewHolder(task, maps.getOrDefault(task.taskUUID, listOf())))
-            }
-        )
+    private val binding by viewBinding(FragmentPagedListBinding::bind)
+    private val viewModel by pagingViewModel({ AppDatabase.getAppDatabase(requireContext()) }) { database ->
+        Repository(database)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setUpRefreshState(binding, viewModel, ListMode.VERTICAL)
+        setUpPagedList(binding, viewModel, ListMode.VERTICAL)
         binding.toolbarLayout.naviMore.setOnClick {
             requireActivity().findCurrentFragmentOrNull()
         }
     }
 
     override fun onClickTaskPreview(humanReadableTask: HumanReadableTask) {
-        pushFragment(R.id.navigation_cache_list, CacheFileFragmentArgs(task = humanReadableTask).toBundle())
+        pushFragment(
+            R.id.navigation_cache_list, CacheFileFragmentArgs(task = humanReadableTask).toBundle()
+        )
+    }
+
+    private class Repository(private val database: AppDatabase) :
+        PagingAPIRepository<HumanReadableTask>() {
+
+        private val maps = hashMapOf<String, List<Illust>>()
+
+        override suspend fun loadFirst(): KListShow<HumanReadableTask> {
+            val entities = database.generalDao().getAllByRecordType(RecordType.USER_TASK)
+            val humanReadableTasks = entities.map { entity ->
+                entity.typedObject<HumanReadableTask>().also {
+                    maps[it.taskUUID] = loadIllustsFromCache(it.taskUUID) ?: listOf()
+                }
+            }
+
+            return object : KListShow<HumanReadableTask> {
+                override val displayList: List<HumanReadableTask>
+                    get() = humanReadableTasks
+                override val nextPageUrl: String?
+                    get() = null
+            }
+        }
+
+        override fun mapper(entity: HumanReadableTask): List<ListItemHolder> {
+            return listOf(
+                TaskPreviewHolder(
+                    entity,
+                    maps.getOrDefault(entity.taskUUID, listOf())
+                )
+            )
+        }
     }
 }

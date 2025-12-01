@@ -487,7 +487,7 @@
     <string name="string_298">默认模式（跟随系统）</string>
     <string name="string_299">白天模式（浅色）</string>
     <string name="string_300">黑暗模式（深色）</string>
-    <string name="string_310">使用Shaft查看</string>
+    <string name="string_310">使用Shaft继续</string>
     <string name="string_311">Shaft以图搜源</string>
     <string name="string_312">前往设定</string>
     <string name="string_313">下载文件不需要请求权限，但是需要设定保存文件的目录文件夹</string>
@@ -697,16 +697,16 @@
     <string name="show_reply">查看回复</string>
     <string name="comments">评论</string>
     <string name="new_tag">New Tag</string>
-    <string name="date_minute_plurals_zero" targets="widget,app" synced="58038e" platforms="all">Just now</string>
-    <plurals name="date_hour" targets="widget,app" synced_one="f9ed7d" synced_other="56508e" platforms="all">
+    <string name="date_minute_plurals_zero" platforms="all" synced="58038e" targets="widget,app">Just now</string>
+    <plurals name="date_hour" platforms="all" synced_one="f9ed7d" synced_other="56508e" targets="widget,app">
         <item quantity="one">%d hour ago</item>
         <item quantity="other">%d hours ago</item>
     </plurals>
-    <plurals name="recent_visits_date_minute" targets="widget,app" synced_one="ff2e35" synced_other="9085a0" platforms="all">
+    <plurals name="recent_visits_date_minute" platforms="all" synced_one="ff2e35" synced_other="9085a0" targets="widget,app">
         <item quantity="one">%d minute ago</item>
         <item quantity="other">%d minutes ago</item>
     </plurals>
-    <plurals name="date_day" targets="widget,app" synced_one="ece421" synced_other="2ed691" platforms="all">
+    <plurals name="date_day" platforms="all" synced_one="ece421" synced_other="2ed691" targets="widget,app">
         <item quantity="one">%d day ago</item>
         <item quantity="other">%d days ago</item>
     </plurals>
@@ -730,7 +730,8 @@
     <string name="country_and_region">国家和地区</string>
     <string name="handle_content_language">设置内容展示语言</string>
     <string name="published_on">发布于: %1$s</string>
-    <string name="remove_blocking">取消屏蔽</string>
+    <string name="remove_blocking">取消屏蔽作品</string>
+    <string name="remove_user_blocking">取消屏蔽用户</string>
     <string name="add_blocking">屏蔽作品</string>
     <string name="view_comments">查看评论</string>
     <string name="flag_artwork">举报作品</string>
@@ -754,4 +755,23 @@
     <string name="browse_history">浏览历史</string>
     <string name="artwork_link">作品链接：%1$s</string>
     <string name="user_link">作者链接：%1$s</string>
+    <string name="landing_start">开始</string>
+    <string name="the_latest_pixiv_artworks">平台最新作品</string>
+    <string name="created_by_me_artworks">我创作的作品</string>
+    <string name="log_in_with_token">Log In With Token</string>
+    <string name="export_refresh_token">导出 Refresh Token</string>
+    <string name="export_logged_in_user_json">导出当前登录用户 JSON</string>
+    <string name="landing_log_in">Log In</string>
+    <string name="landing_sign_up">Sign Up</string>
+    <string name="app_background">背景图</string>
+    <string name="rank_select_date">Select Date</string>
+    <string name="rank_clear_date">Clear Date</string>
+    <string name="background_specified_illust">指定的插画作品</string>
+    <string name="background_chosen_from_gallary">从相册选择</string>
+    <string name="background_random_from_favorites">从我的收藏随机</string>
+    <string name="twice_back_will_close_app">再次返回退出软件</string>
+    <string name="no_internet_connection">无网络连接</string>
+    <string name="enable_vpn">Enable VPN</string>
+    <string name="parse_link">解析链接</string>
+    <string name="prime_tags">热度标签</string>
 </resources>

@@ -10,8 +10,6 @@ import kotlinx.parcelize.Parcelize
 import java.io.Serializable
 
 
-
-
 data class AccountResponse(
     val access_token: String? = null,
     val expires_in: Int? = null,
@@ -142,6 +140,12 @@ data class WebIllust(
     }
 }
 
+data class WebImgPage(
+    val width: Int = 1,
+    val height: Int = 1,
+    val urls: Map<String, String>? = null,
+)
+
 data class Illust(
     val caption: String? = null,
     val create_date: String? = null,
@@ -176,7 +180,7 @@ data class Illust(
     override val objectUniqueId: Long
         get() = id
     override val objectType: Int
-        get() = ObjectSpec.Illust
+        get() = ObjectSpec.KOTLIN_ILLUST
 
     fun displayCreateDate(): String {
         return DateParse.displayCreateDate(create_date)
@@ -222,18 +226,24 @@ data class WebTag(
     val cnt: Int? = null,
     val ids: List<Long>? = null,
 ) : Serializable {
-    val tagName: String? get() {
-        return tag ?: tag_translation
-    }
+    val tagName: String?
+        get() {
+            return tag ?: tag_translation
+        }
 }
 
 data class Tag(
     val name: String? = null,
     val translated_name: String? = null
-) : Serializable {
-    val tagName: String? get() {
-        return name ?: translated_name
-    }
+) : Serializable, ModelObject {
+    val tagName: String?
+        get() {
+            return name ?: translated_name
+        }
+    override val objectUniqueId: Long
+        get() = stableHash(name + translated_name).toLong()
+    override val objectType: Int
+        get() = ObjectSpec.SIMPLE_TAG
 }
 
 object UserGender {
@@ -264,9 +274,9 @@ data class User(
     val comment: String? = null,
 ) : Serializable, ModelObject {
     override val objectUniqueId: Long
-        get() = id
+        get() = if (id > 0L) id else user_id
     override val objectType: Int
-        get() = ObjectSpec.KUser
+        get() = ObjectSpec.KOTLIN_USER
 
     fun isOfficial(): Boolean {
         return ConstantUser.officialUsers.contains(id)
@@ -443,7 +453,12 @@ data class UserPreview(
     val is_muted: Boolean? = null,
     val novels: List<Any>? = null,
     val user: User? = null
-) : Serializable
+) : Serializable, ModelObject {
+    override val objectUniqueId: Long
+        get() = hashCode().toLong()
+    override val objectType: Int
+        get() = ObjectSpec.USER_PREVIEW
+}
 
 data class UserPreviewResponse(
     val user_previews: List<UserPreview> = listOf(),
@@ -467,11 +482,54 @@ data class TrendingTag(
     val tag: String? = null,
     val translated_name: String? = null,
     val illust: Illust? = null,
-) : Serializable {
+) : Serializable, ModelObject {
     fun buildTag(): Tag {
         return Tag(name = tag, translated_name = translated_name)
     }
+
+    override val objectUniqueId: Long
+        get() = illust?.id ?: 0L
+    override val objectType: Int
+        get() = ObjectSpec.TRENDING_TAG
 }
+
+data class NotificationResponse(
+    val notifications: List<Notification>? = null,
+    val next_url: String? = null
+) : Serializable, KListShow<Notification> {
+    override val displayList: List<Notification>
+        get() = notifications.orEmpty()
+    override val nextPageUrl: String?
+        get() = next_url
+}
+
+data class Notification(
+    val id: Long = 0L,
+    val created_datetime: String? = null,
+    val type: Int? = null,
+    val content: NotificationContent? = null,
+    val view_more: ViewMore? = null,
+    val target_url: String? = null,
+    val is_read: Boolean? = null
+) : ModelObject, Serializable {
+    override val objectUniqueId: Long
+        get() = id
+    override val objectType: Int
+        get() = ObjectSpec.NOTIFICATION
+}
+
+data class NotificationContent(
+    val text: String? = null,
+    val left_icon: String? = null,
+    val left_image: String? = null,
+    val right_icon: String? = null,
+    val right_image: String? = null
+) : Serializable
+
+data class ViewMore(
+    val unread_exists: Boolean? = null,
+    val title: String? = null
+) : Serializable
 
 
 data class ArticlesResponse(
@@ -504,6 +562,10 @@ data class SingleIllustResponse(
 
 data class SingleNovelResponse(
     val novel: Novel? = null,
+) : Serializable
+
+data class SearchSuggestionResponse(
+    val tags: List<Tag> = emptyList(),
 ) : Serializable
 
 data class GifInfoResponse(
@@ -556,7 +618,7 @@ data class Stamp(
 data class CommentResponse(
     val comments: List<Comment> = listOf(),
     val next_url: String? = null
-): Serializable, KListShow<Comment> {
+) : Serializable, KListShow<Comment> {
     override val displayList: List<Comment>
         get() = comments
     override val nextPageUrl: String?
@@ -565,20 +627,26 @@ data class CommentResponse(
 
 data class PostCommentResponse(
     val comment: Comment? = null,
-): Serializable
+) : Serializable
 
-data class WebResponse<T> (
+data class WebResponse<T>(
     val error: Boolean? = null,
     val message: String? = null,
     val body: T? = null,
 ) : Serializable
 
-data class RelatedUserBody (
+data class NotLogInHomeData(
+    val error: Boolean? = null,
+    val message: String? = null,
+    val body: HomeData? = null,
+) : Serializable
+
+data class RelatedUserBody(
     val thumbnails: List<WebIllust>? = null,
     val users: List<WebUser>? = null,
 ) : Serializable
 
-data class WebRecmdBody (
+data class WebRecmdBody(
     val thumbnails: List<WebIllust>? = null,
     val popularTags: TagsBody? = null,
     val recommendTags: TagsBody? = null,
@@ -586,11 +654,52 @@ data class WebRecmdBody (
 ) : Serializable
 
 
-data class TagsBody (
+data class TagsBody(
     val illust: List<SingleRecommend>? = null,
 ) : Serializable
 
-data class SingleRecommend (
+data class MainBody(
+    val k: String? = null,
+    val vhi: String? = null,
+    val vhm: String? = null,
+    val vhn: String? = null,
+    val next_params: NextPageSpec? = null,
+) : Serializable
+
+data class HomeData(
+    val contents: List<HomeOneLine>? = null,
+    val next_params: NextPageSpec? = null,
+) : Serializable, KListShow<HomeOneLine> {
+    override val displayList: List<HomeOneLine>
+        get() = contents.orEmpty()
+    override val nextPageUrl: String?
+        get() = null
+}
+
+data class HomeOneLine(
+    val kind: String? = null,
+    val ranking_date: String? = null,
+    val mode: String? = null,
+    val thumbnails: List<ThumbnailItem>? = null
+) : Serializable
+
+data class ThumbnailItem(
+    val type: String? = null,
+    val sub_category: String? = null,
+    val sub_category_label: String? = null,
+    val title: String? = null,
+    val url: String? = null,
+    val image_url: String? = null,
+    val app_model: Any? = null,
+    val pages: List<WebImgPage>? = null,
+) : Serializable
+
+data class NextPageSpec(
+    val page: Int? = null,
+    val content_index_prev: Int? = null,
+) : Serializable
+
+data class SingleRecommend(
     val tag: String? = null,
     val ids: List<Long>? = null,
 ) : Serializable
@@ -616,16 +725,16 @@ data class TitleCaptionTranslation(
     val workTitle: Any
 ) : Serializable
 
-data class WaitingPage (
+data class WaitingPage(
     val thumbnails: ThumbnailBody? = null
 ) : Serializable
 
 
-data class ThumbnailBody (
+data class ThumbnailBody(
     val illust: List<WebIllust>? = null,
 ) : Serializable
 
-data class ListIllustBody (
+data class ListIllustBody(
     val illusts: List<WebIllust>? = null,
 ) : Serializable
 
@@ -655,10 +764,10 @@ data class Novel(
     override val objectUniqueId: Long
         get() = id
     override val objectType: Int
-        get() = ObjectSpec.POST
+        get() = ObjectSpec.KOTLIN_NOVEL
 }
 
-data class Series (
+data class Series(
     val id: Long,
     val title: String? = null,
 ) : Serializable
@@ -728,15 +837,12 @@ data class WebIllustHolder(
 ) : Serializable
 
 
-
 data class NovelImages(
     val novelImageId: Long? = null,
     val sl: Int? = null,
     val urls: Map<String, String>? = null,
 ) {
-    companion object {
-
-    }
+    companion object
 
     object Size {
         const val Size240mw = "240mw"

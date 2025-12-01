@@ -1,9 +1,10 @@
 package ceui.loxia
 
+import ceui.lisa.models.GifResponse
 import ceui.lisa.models.NullResponse
 import ceui.lisa.utils.Params
 import okhttp3.ResponseBody
-import retrofit2.Call
+import retrofit2.http.Body
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
@@ -21,6 +22,52 @@ interface API {
         @Field("type_of_problem") type_of_problem: String?,
         @Field("message") message: String?
     ): NullResponse
+
+    @GET("/v2/search/autocomplete")
+    suspend fun getSearchSuggestions(
+        @Query("merge_plain_keyword_results") merge_plain_keyword_results: Boolean = true,
+        @Query("word") word: String,
+    ): SearchSuggestionResponse
+
+    /**
+     * {
+     * 	"tags": [{
+     * 		"name": "\u6771\u65b9",
+     * 		"translated_name": "\u4e1c\u65b9"
+     * 	}, {
+     * 		"name": "\u6771\u65b9Project",
+     * 		"translated_name": "\u4e1c\u65b9Project"
+     * 	}, {
+     * 		"name": "\u6771\u65b94\u30b3\u30de",
+     * 		"translated_name": "\u4e1c\u65b94\u683c\u6f2b\u753b"
+     * 	}, {
+     * 		"name": "\u4e1c\u65b9project",
+     * 		"translated_name": null
+     * 	}, {
+     * 		"name": "\u4e1c\u65b9",
+     * 		"translated_name": null
+     * 	}, {
+     * 		"name": "\u6771\u65b9\u30af\u30ea\u30b9\u30de\u30b9",
+     * 		"translated_name": "\u4e1c\u65b9\u5723\u8bde\u8282"
+     * 	}, {
+     * 		"name": "\u6771\u65b9\u30ed\u30b9\u30c8\u30ef\u30fc\u30c9",
+     * 		"translated_name": "\u4e1c\u65b9LostWord"
+     * 	}, {
+     * 		"name": "\u6771\u65b9Project\u30d5\u30ea\u30fc\u7acb\u3061\u7d75\u30ea\u30f3\u30af",
+     * 		"translated_name": "\u4e1c\u65b9Project\u81ea\u7531\u7acb\u7ed8\u94fe\u63a5"
+     * 	}, {
+     * 		"name": "\u6771\u65b9\u525b\u6b32\u7570\u805e",
+     * 		"translated_name": "\u4e1c\u65b9\u521a\u6b32\u5f02\u95fb"
+     * 	}, {
+     * 		"name": "\u6771\u65b9Project20\u5468\u5e74\u8a18\u5ff5\u30a4\u30e9\u30b9\u30c8",
+     * 		"translated_name": "\u4e1c\u65b9Project20\u5468\u5e74\u7eaa\u5ff5\u63d2\u753b"
+     * 	}]
+     * }
+     */
+
+
+    @POST("/v1/home/all")
+    suspend fun getHomeAll(@Body body: MainBody = MainBody()): HomeData
 
     @FormUrlEncoded
     @POST("/v1/user/follow/add")
@@ -136,6 +183,13 @@ interface API {
         @Query("restrict") restrict: String,
     ): NovelResponse
 
+    @GET("/v1/novel/new")
+    suspend fun getLatestNovels(): NovelResponse
+
+    @GET("/v1/illust/new?filter=for_ios")
+    suspend fun getLatestIllustManga(
+        @Query("content_type") content_type: String,
+    ): IllustResponse
 
     @GET("/v2/user/detail?filter=for_ios")
     suspend fun getUserProfile(
@@ -147,6 +201,13 @@ interface API {
         @Query("user_id") user_id: Long,
         @Query("restrict") restrict: String,
     ): UserPreviewResponse
+
+
+    @GET("/v1/notification/list")
+    suspend fun getNotifications(): NotificationResponse
+
+    @GET("/v1/notification/view-more")
+    suspend fun getViewMoreNotifications(@Query("notification_id") notification_id: Long): NotificationResponse
 
     @GET("/v1/user/follower?filter=for_ios")
     suspend fun getUserFans(
@@ -171,7 +232,13 @@ interface API {
     @GET("/v1/illust/ranking?filter=for_ios")
     suspend fun getRankingIllusts(
         @Query("mode") mode: String,
+        @Query("date") date: String? = null,
     ): IllustResponse
+
+    @GET("/v1/ugoira/metadata")
+    suspend fun getGifPackage(
+        @Query("illust_id") illust_id: Long,
+    ): GifResponse
 
     @GET("/v1/search/popular-preview/illust?search_ai_type=0&filter=for_ios")
     suspend fun popularPreview(

@@ -3,8 +3,10 @@ package ceui.pixiv.db
 import android.content.Context
 import ceui.lisa.activities.Shaft
 import ceui.lisa.database.AppDatabase
+import ceui.lisa.models.ObjectSpec
 import ceui.loxia.Illust
 import ceui.loxia.Novel
+import ceui.loxia.Tag
 import ceui.loxia.User
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -14,7 +16,7 @@ import timber.log.Timber
 
 
 class EntityWrapper(
-    private val context: Context
+    private val impl: AppDatabase,
 ) {
 
     private val _blockingIllustIds = mutableSetOf<Long>()
@@ -24,11 +26,15 @@ class EntityWrapper(
     fun initialize() {
         MainScope().launch {
             withContext(Dispatchers.IO) {
-                val database = AppDatabase.getAppDatabase(context)
-
-                _blockingIllustIds.addAll(database.generalDao().getAllIdsByRecordType(RecordType.BLOCK_ILLUST))
-                _blockingUserIds.addAll(database.generalDao().getAllIdsByRecordType(RecordType.BLOCK_USER))
-                _blockingNovelIds.addAll(database.generalDao().getAllIdsByRecordType(RecordType.BLOCK_USER))
+                _blockingIllustIds.addAll(
+                    impl.generalDao().getAllIdsByRecordType(RecordType.BLOCK_ILLUST)
+                )
+                _blockingUserIds.addAll(
+                    impl.generalDao().getAllIdsByRecordType(RecordType.BLOCK_USER)
+                )
+                _blockingNovelIds.addAll(
+                    impl.generalDao().getAllIdsByRecordType(RecordType.BLOCK_USER)
+                )
             }
         }
     }
@@ -36,7 +42,7 @@ class EntityWrapper(
     // 通用插入方法
     private suspend fun insertEntity(context: Context, entity: GeneralEntity) {
         try {
-            AppDatabase.getAppDatabase(context).generalDao().insert(entity)
+            impl.generalDao().insert(entity)
             if (entity.recordType == RecordType.BLOCK_ILLUST) {
                 _blockingIllustIds.add(entity.id)
             } else if (entity.recordType == RecordType.BLOCK_USER) {
@@ -53,7 +59,7 @@ class EntityWrapper(
     // 通用删除方法
     private suspend fun deleteEntity(context: Context, recordType: Int, id: Long) {
         try {
-            AppDatabase.getAppDatabase(context).generalDao().deleteByRecordTypeAndId(recordType, id)
+            impl.generalDao().deleteByRecordTypeAndId(recordType, id)
             if (recordType == RecordType.BLOCK_ILLUST) {
                 _blockingIllustIds.remove(id)
             } else if (recordType == RecordType.BLOCK_USER) {
@@ -68,7 +74,13 @@ class EntityWrapper(
     }
 
     // 插入访问记录
-    private fun visit(context: Context, id: Long, entityJson: String, entityType: Int, recordType: Int) {
+    private fun visit(
+        context: Context,
+        id: Long,
+        entityJson: String,
+        entityType: Int,
+        recordType: Int
+    ) {
         MainScope().launch(Dispatchers.IO) {
             val entity = GeneralEntity(id, entityJson, entityType, recordType)
             insertEntity(context, entity)
@@ -76,7 +88,13 @@ class EntityWrapper(
     }
 
     // 插入或删除块操作
-    private fun block(context: Context, id: Long, entityJson: String, entityType: Int, recordType: Int) {
+    private fun block(
+        context: Context,
+        id: Long,
+        entityJson: String,
+        entityType: Int,
+        recordType: Int
+    ) {
         MainScope().launch(Dispatchers.IO) {
             val entity = GeneralEntity(id, entityJson, entityType, recordType)
             insertEntity(context, entity)
@@ -86,33 +104,55 @@ class EntityWrapper(
     // 调用 `visit` 方法
     fun visitIllust(context: Context, illust: Illust) {
         val json = Shaft.sGson.toJson(illust)
-        visit(context, illust.id, json, EntityType.ILLUST, RecordType.VIEW_ILLUST_HISTORY)
+        Timber.d("visitIllust ${illust.id}")
+        visit(context, illust.id, json, ObjectSpec.KOTLIN_ILLUST, RecordType.VIEW_ILLUST_HISTORY)
     }
 
     fun visitNovel(context: Context, novel: Novel) {
         val json = Shaft.sGson.toJson(novel)
-        visit(context, novel.id, json, EntityType.NOVEL, RecordType.VIEW_NOVEL_HISTORY)
+        visit(context, novel.id, json, ObjectSpec.KOTLIN_NOVEL, RecordType.VIEW_NOVEL_HISTORY)
     }
 
     fun visitUser(context: Context, user: User) {
         val json = Shaft.sGson.toJson(user)
-        visit(context, user.id, json, EntityType.USER, RecordType.VIEW_USER_HISTORY)
+        visit(context, user.id, json, ObjectSpec.KOTLIN_USER, RecordType.VIEW_USER_HISTORY)
+    }
+
+    fun visitTag(context: Context, tag: Tag) {
+        val json = Shaft.sGson.toJson(tag)
+        Timber.d("visitTag ${tag}")
+        visit(context, tag.objectUniqueId, json, ObjectSpec.SIMPLE_TAG, RecordType.VIEW_TAG_HISTORY)
+    }
+
+    fun addUserToFavorite(context: Context, user: User) {
+        MainScope().launch(Dispatchers.IO) {
+            val json = Shaft.sGson.toJson(user)
+            val entity =
+                GeneralEntity(user.id, json, ObjectSpec.KOTLIN_USER, RecordType.FAVORITE_USER)
+            insertEntity(context, entity)
+        }
+    }
+
+    fun removeFavoriteUser(context: Context, user: User) {
+        MainScope().launch(Dispatchers.IO) {
+            deleteEntity(context, RecordType.FAVORITE_USER, user.id)
+        }
     }
 
     // 调用 `block` 方法
     fun blockIllust(context: Context, illust: Illust) {
         val json = Shaft.sGson.toJson(illust)
-        block(context, illust.id, json, EntityType.ILLUST, RecordType.BLOCK_ILLUST)
+        block(context, illust.id, json, ObjectSpec.KOTLIN_ILLUST, RecordType.BLOCK_ILLUST)
     }
 
     fun blockNovel(context: Context, novel: Novel) {
         val json = Shaft.sGson.toJson(novel)
-        block(context, novel.id, json, EntityType.NOVEL, RecordType.BLOCK_NOVEL)
+        block(context, novel.id, json, ObjectSpec.KOTLIN_NOVEL, RecordType.BLOCK_NOVEL)
     }
 
     fun blockUser(context: Context, user: User) {
         val json = Shaft.sGson.toJson(user)
-        block(context, user.id, json, EntityType.USER, RecordType.BLOCK_USER)
+        block(context, user.id, json, ObjectSpec.KOTLIN_USER, RecordType.BLOCK_USER)
     }
 
     // 调用删除方法
@@ -131,6 +171,12 @@ class EntityWrapper(
     fun unblockUser(context: Context, user: User) {
         MainScope().launch(Dispatchers.IO) {
             deleteEntity(context, RecordType.BLOCK_USER, user.id)
+        }
+    }
+
+    fun deleteVisitTag(context: Context, tag: Tag) {
+        MainScope().launch(Dispatchers.IO) {
+            deleteEntity(context, RecordType.VIEW_TAG_HISTORY, tag.objectUniqueId)
         }
     }
 

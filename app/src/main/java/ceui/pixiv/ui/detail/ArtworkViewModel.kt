@@ -1,10 +1,9 @@
 package ceui.pixiv.ui.detail
 
-import ceui.lisa.R
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import ceui.lisa.R
 import ceui.lisa.activities.Shaft
 import ceui.lisa.database.AppDatabase
 import ceui.loxia.Client
@@ -13,33 +12,38 @@ import ceui.loxia.IllustResponse
 import ceui.loxia.ObjectPool
 import ceui.loxia.RefreshHint
 import ceui.loxia.RefreshState
-import ceui.pixiv.db.EntityWrapper
 import ceui.pixiv.db.RecordType
 import ceui.pixiv.ui.chats.RedSectionHeaderHolder
 import ceui.pixiv.ui.chats.SeeMoreType
 import ceui.pixiv.ui.common.DataSource
-import ceui.pixiv.ui.common.HoldersContainer
 import ceui.pixiv.ui.common.HoldersViewModel
 import ceui.pixiv.ui.common.ListItemHolder
-import ceui.pixiv.ui.common.LoadMoreOwner
 import ceui.pixiv.ui.common.LoadingHolder
-import ceui.pixiv.ui.common.RefreshOwner
-import ceui.pixiv.ui.common.createResponseStore
+import ceui.pixiv.ui.task.DownloadGifZipTask
+import ceui.pixiv.ui.task.GifResourceTask
+import ceui.pixiv.ui.task.GifState
+import ceui.pixiv.ui.task.TaskPool
 import ceui.pixiv.ui.user.UserPostHolder
 import ceui.pixiv.ui.works.getGalleryHolders
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import timber.log.Timber
 
 class ArtworkViewModel(
     private val illustId: Long,
-    private val activityCoroutineScope: CoroutineScope
+    private val taskPool: TaskPool
 ) : HoldersViewModel() {
 
     private val _illustLiveData = ObjectPool.get<Illust>(illustId)
     val illustLiveData: LiveData<Illust> = _illustLiveData
+
+    private val _gifState = MutableLiveData<GifState>(GifState.FetchGifResponse)
+    val gifState: LiveData<GifState> = _gifState
+
+
+    val galleryHolders = MutableLiveData<List<ListItemHolder>>()
+
 
     private val _relatedIllustsDataSource = object : DataSource<Illust, IllustResponse>(
         dataFetcher = { Client.appApi.getRelatedIllusts(illustId) },
@@ -76,22 +80,54 @@ class ArtworkViewModel(
 
     override suspend fun refreshImpl(hint: RefreshHint) {
         super.refreshImpl(hint)
+
+        if (hint == RefreshHint.ErrorRetry) {
+            delay(600L)
+        }
+
         val context = Shaft.getContext()
         val illust = ObjectPool.get<Illust>(illustId).value ?: run {
             withContext(Dispatchers.IO) {
-                val entity = AppDatabase.getAppDatabase(context).generalDao().getByRecordTypeAndId(RecordType.VIEW_ILLUST_HISTORY, illustId)
+                val entity = AppDatabase.getAppDatabase(context).generalDao()
+                    .getByRecordTypeAndId(RecordType.VIEW_ILLUST_HISTORY, illustId)
                 entity?.typedObject<Illust>()?.also {
                     ObjectPool.update(it)
+                    it.user?.let { user ->
+                        ObjectPool.update(user)
+                    }
                 }
             }
         } ?: run {
             Client.appApi.getIllust(illustId).illust?.also {
                 ObjectPool.update(it)
+                it.user?.let { user ->
+                    ObjectPool.update(user)
+                }
             }
         } ?: return
+        if (!illust.isAuthurExist()) {
+            _refreshState.value = RefreshState.LOADED(
+                hasContent = false, hasNext = false
+            )
+            throw RuntimeException("无法访问此内容")
+        }
+
+
+//        galleryHolders.value = getGalleryHolders(illust, MainScope(), taskPool) ?: listOf()
+
         val result = mutableListOf<ListItemHolder>()
-        val images = getGalleryHolders(illust, activityCoroutineScope)
-        result.addAll(images ?: listOf())
+
+        if (illust.isGif()) {
+            viewModelScope.launch {
+                val gifResponse =
+                    GifResourceTask(illustId).awaitResult()
+                DownloadGifZipTask(illustId, gifResponse, _gifState).awaitResult()
+            }
+            result.add(GifHolder(illust, _gifState))
+        } else {
+            result.addAll(getGalleryHolders(illust, taskPool) ?: listOf())
+        }
+
         result.add(RedSectionHeaderHolder("标题"))
         result.add(ArtworkInfoHolder(illustId))
         result.add(RedSectionHeaderHolder(context.getString(R.string.string_432)))
