@@ -2,6 +2,9 @@ package ceui.pixiv.ui.settings
 
 import android.os.Bundle
 import android.view.View
+import android.widget.EditText
+import android.widget.FrameLayout
+import androidx.appcompat.app.AlertDialog
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import ceui.lisa.R
@@ -22,10 +25,13 @@ import ceui.pixiv.ui.common.PixivFragment
 import ceui.pixiv.ui.common.TabCellHolder
 import ceui.pixiv.ui.common.setUpCustomAdapter
 import ceui.pixiv.ui.common.viewBinding
+import ceui.pixiv.translation.TranslationApiKeyStore
+import ceui.pixiv.ui.common.ListItemHolder
 import ceui.pixiv.ui.web.WebFragmentArgs
 import ceui.pixiv.utils.GSON_DEFAULT
 import ceui.pixiv.widgets.alertYesOrCancel
 import com.tencent.mmkv.MMKV
+import kotlin.math.roundToInt
 
 class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActionReceiver {
 
@@ -42,98 +48,127 @@ class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActi
         binding.toolbarLayout.naviTitle.text = getString(R.string.app_settings)
         val liveUser = ObjectPool.get<User>(SessionManager.loggedInUid)
         prefStore.getString(SessionManager.COOKIE_KEY, "") ?: ""
-//        val nameCode = prefStore.getString(SessionManager.CONTENT_LANGUAGE_KEY, "cn") ?: "cn"
         val nameCode = "cn"
-        val context = requireActivity()
-        val backgroundType = requireAppBackground().config.value?.type
+        val activityCtx = requireActivity()
 
-        liveUser.observe(viewLifecycleOwner) { user ->
-            adapter.submitList(
-                listOf(
-                    TabCellHolder(
-                        getString(R.string.view_and_artworks_display),
-                        getString(R.string.handle_r18g_displaying)
-                    ).onItemClick {
-                        pushFragment(
-                            R.id.navigation_web_fragment,
-                            WebFragmentArgs("https://www.pixiv.net/settings/viewing").toBundle()
-                        )
+        fun buildSettingsList(): List<ListItemHolder> {
+            val backgroundType = requireAppBackground().config.value?.type
+            return listOf(
+                TabCellHolder(
+                    getString(R.string.view_and_artworks_display),
+                    getString(R.string.handle_r18g_displaying),
+                ).onItemClick {
+                    pushFragment(
+                        R.id.navigation_web_fragment,
+                        WebFragmentArgs("https://www.pixiv.net/settings/viewing").toBundle(),
+                    )
+                },
+
+                TabCellHolder(
+                    getString(R.string.app_background),
+                    extraInfo = if (backgroundType == BackgroundType.SPECIFIC_ILLUST) {
+                        getString(R.string.background_specified_illust)
+                    } else if (backgroundType == BackgroundType.LOCAL_FILE) {
+                        getString(R.string.background_chosen_from_gallary)
+                    } else {
+                        backgroundType?.toString()
                     },
+                ).onItemClick {
+                    pushFragment(
+                        R.id.navigation_background_settings,
+                    )
+                },
 
-                    TabCellHolder(
-                        getString(R.string.app_background),
-                        extraInfo = if (backgroundType == BackgroundType.SPECIFIC_ILLUST) {
-                            getString(R.string.background_specified_illust)
-                        } else if (backgroundType == BackgroundType.LOCAL_FILE) {
-                            getString(R.string.background_chosen_from_gallary)
-                        } else {
-                            backgroundType?.toString()
+                TabCellHolder(
+                    getString(R.string.country_and_region),
+                    getString(R.string.handle_content_language),
+                    nameCode,
+                ).onItemClick {
+                    pushFragment(
+                        R.id.navigation_select_country,
+                    )
+                },
+
+                TabCellHolder(
+                    getString(R.string.language),
+                    getString(R.string.handle_content_language),
+                    Shaft.sSettings.appLanguage,
+                ).onItemClick {
+                    pushFragment(
+                        R.id.navigation_select_language,
+                    )
+                },
+
+                TabCellHolder(
+                    getString(R.string.translation_xai_api_key_title),
+                    getString(R.string.translation_xai_api_key_summary),
+                    TranslationApiKeyStore.getSettingsSummary(
+                        getString(R.string.translation_xai_api_key_not_set),
+                    ),
+                ).onItemClick {
+                    val edit = EditText(requireContext()).apply {
+                        setText(TranslationApiKeyStore.getApiKey())
+                        hint = getString(R.string.translation_xai_api_key_hint)
+                    }
+                    val pad = (16 * resources.displayMetrics.density).roundToInt()
+                    val container = FrameLayout(requireContext()).apply {
+                        setPadding(pad, pad / 2, pad, pad / 2)
+                        addView(edit)
+                    }
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(R.string.translation_xai_api_key_title)
+                        .setView(container)
+                        .setPositiveButton(R.string.string_190) { _, _ ->
+                            if (TranslationApiKeyStore.setApiKey(edit.text?.toString().orEmpty())) {
+                                adapter.submitList(buildSettingsList())
+                            } else {
+                                Common.showToast(getString(R.string.translation_api_key_save_failed), 2)
+                            }
                         }
-                    ).onItemClick {
-                        pushFragment(
-                            R.id.navigation_background_settings,
-                        )
-                    },
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                },
 
-                    TabCellHolder(
-                        getString(R.string.country_and_region),
-                        getString(R.string.handle_content_language),
-                        nameCode
-                    ).onItemClick {
-                        pushFragment(
-                            R.id.navigation_select_country,
-                        )
-                    },
+                TabCellHolder(
+                    getString(R.string.export_refresh_token),
+                    extraInfo = SessionManager.loggedInAccount.value?.refresh_token,
+                ).onItemClick {
+                    SessionManager.loggedInAccount.value?.refresh_token?.let { token ->
+                        Common.copy(activityCtx, token)
+                    }
+                },
 
-                    TabCellHolder(
-                        getString(R.string.language),
-                        getString(R.string.handle_content_language),
-                        Shaft.sSettings.appLanguage
-                    ).onItemClick {
-                        pushFragment(
-                            R.id.navigation_select_language,
-                        )
-                    },
+                TabCellHolder(
+                    getString(R.string.export_logged_in_user_json),
+                    extraInfo = "[JSON FORMATTED]",
+                ).onItemClick {
+                    SessionManager.loggedInAccount.value?.let { account ->
+                        Common.copy(activityCtx, GSON_DEFAULT.toJson(account))
+                    }
+                },
 
-                    TabCellHolder(
-                        getString(R.string.export_refresh_token),
-                        extraInfo = SessionManager.loggedInAccount.value?.refresh_token,
-                    ).onItemClick {
-                        SessionManager.loggedInAccount.value?.refresh_token?.let { token ->
-                            Common.copy(context, token)
-                        }
-                    },
+                TabCellHolder(
+                    "Landing Page Preview",
+                ).onItemClick {
+                    pushFragment(
+                        R.id.navigation_landing,
+                    )
+                },
 
-                    TabCellHolder(
-                        getString(R.string.export_logged_in_user_json),
-                        extraInfo = "[JSON FORMATTED]"
-                    ).onItemClick {
-                        SessionManager.loggedInAccount.value?.let { account ->
-                            Common.copy(context, GSON_DEFAULT.toJson(account))
-                        }
-                    },
+                TabCellHolder(
+                    getString(R.string.full_about_app),
+                ).onItemClick {
+                    pushFragment(
+                        R.id.navigation_about_app,
+                    )
+                },
 
-
-                    TabCellHolder(
-                        "Landing Page Preview",
-                    ).onItemClick {
-                        pushFragment(
-                            R.id.navigation_landing,
-                        )
-                    },
-
-
-                    TabCellHolder(
-                        getString(R.string.full_about_app),
-                    ).onItemClick {
-                        pushFragment(
-                            R.id.navigation_about_app,
-                        )
-                    },
-
-                    LogOutHolder()
-                )
+                LogOutHolder(),
             )
+        }
+
+        liveUser.observe(viewLifecycleOwner) {
+            adapter.submitList(buildSettingsList())
         }
     }
 

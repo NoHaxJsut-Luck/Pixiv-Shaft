@@ -1,14 +1,12 @@
 package ceui.pixiv.ui.novel
 
-import android.view.View
-import android.view.ViewGroup
-import androidx.core.text.HtmlCompat
 import androidx.core.view.isVisible
 import ceui.lisa.annotations.ItemHolder
 import ceui.lisa.databinding.CellNovelSeriesHeaderBinding
 import ceui.loxia.NovelSeriesDetail
 import ceui.pixiv.ui.common.ListItemHolder
 import ceui.pixiv.ui.common.ListItemViewHolder
+import ceui.pixiv.ui.common.setCaptionHtml
 
 class NovelSeriesHeaderHolder(val series: NovelSeriesDetail) : ListItemHolder() {
     override fun getItemId(): Long {
@@ -24,7 +22,7 @@ class NovelSeriesHeaderViewHolder(bd: CellNovelSeriesHeaderBinding) : ListItemVi
         binding.series = holder.series
         if (holder.series.caption?.isNotEmpty() == true) {
             binding.caption.isVisible = true
-            binding.caption.text = HtmlCompat.fromHtml(holder.series.caption, HtmlCompat.FROM_HTML_MODE_COMPACT)
+            binding.caption.setCaptionHtml(holder.series.caption)
         } else {
             binding.caption.isVisible = false
         }

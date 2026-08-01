@@ -774,4 +774,15 @@
     <string name="enable_vpn">Enable VPN</string>
     <string name="parse_link">解析链接</string>
     <string name="prime_tags">热度标签</string>
+    <string name="translate">翻译</string>
+    <string name="translation_xai_api_key_title">小说翻译 API Key</string>
+    <string name="translation_xai_api_key_summary">xAI (Grok) 密钥，仅保存在本机</string>
+    <string name="translation_xai_api_key_hint">在此粘贴 xai-… 密钥</string>
+    <string name="translation_xai_api_key_not_set">未设置</string>
+    <string name="translation_xai_api_key_required">请先在「应用设置」中配置小说翻译 API Key</string>
+    <string name="translation_progress_detail">正在翻译: %1$d/%2$d 块 · 原文约 %3$d%%</string>
+    <string name="translation_api_key_save_failed">无法安全保存 API Key，请重试</string>
+    <string name="translation_in_progress">翻译正在进行中，请稍候</string>
+    <string name="translation_complete">翻译完成</string>
+    <string name="translation_failed">翻译失败，请检查网络或 API Key</string>
 </resources>

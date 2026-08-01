@@ -1,63 +1,85 @@
 package ceui.pixiv.ui.novel
 
+import android.text.Selection
+import android.text.Spannable
 import android.text.method.LinkMovementMethod
+import android.text.style.URLSpan
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.widget.TextView
-import timber.log.Timber
+import kotlin.math.abs
 
 class CustomLinkMovementMethod(private val onLinkClick: (String) -> Unit) : LinkMovementMethod() {
 
-    private var isSliding = false  // 标记是否发生了滑动
-    private var startX = 0f  // 记录按下时的 X 坐标
-    private var startY = 0f  // 记录按下时的 Y 坐标
+    private var pressedSpan: URLSpan? = null
+    private var startX = 0f
+    private var startY = 0f
 
-    override fun onTouchEvent(widget: TextView, buffer: android.text.Spannable, event: MotionEvent): Boolean {
-        // 记录触摸事件的坐标
-        val x = event.x
-        val y = event.y
-
-        when (event.action) {
+    override fun onTouchEvent(widget: TextView, buffer: Spannable, event: MotionEvent): Boolean {
+        return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // 记录按下时的位置
-                startX = x
-                startY = y
-                isSliding = false  // 初始状态没有滑动
+                pressedSpan = findClickedLink(widget, buffer, event)
+                if (pressedSpan == null) {
+                    false
+                } else {
+                    startX = event.x
+                    startY = event.y
+                    Selection.setSelection(
+                        buffer,
+                        buffer.getSpanStart(pressedSpan),
+                        buffer.getSpanEnd(pressedSpan)
+                    )
+                    true
+                }
             }
+
             MotionEvent.ACTION_MOVE -> {
-                // 判断是否发生了滑动
-                val deltaX = Math.abs(x - startX)
-                val deltaY = Math.abs(y - startY)
-                if (deltaX > 20 || deltaY > 20) {  // 如果移动超过一定距离，就认为是滑动
-                    isSliding = true
+                val touchSlop = ViewConfiguration.get(widget.context).scaledTouchSlop
+                val moved = abs(event.x - startX) > touchSlop || abs(event.y - startY) > touchSlop
+                val stillOnSameLink = findClickedLink(widget, buffer, event) == pressedSpan
+                if (moved || !stillOnSameLink) {
+                    clearPressedLink(buffer)
+                    false
+                } else {
+                    true
                 }
             }
+
             MotionEvent.ACTION_UP -> {
-                // 手指抬起时，如果没有滑动，处理点击事件
-                if (!isSliding) {
-                    val layout = widget.layout
-                    val line = layout.getLineForVertical(y.toInt())
-                    val offset = layout.getOffsetForHorizontal(line, x)
-                    val link = getClickedLink(buffer, offset)
-
-                    // 如果有链接，触发回调
-                    if (link != null) {
-                        onLinkClick(link)  // 调用回调
-                        Timber.d("Link clicked: $link")
-                    }
+                val clickedSpan = findClickedLink(widget, buffer, event)
+                val shouldOpen = clickedSpan != null && clickedSpan == pressedSpan
+                clearPressedLink(buffer)
+                if (shouldOpen) {
+                    onLinkClick(clickedSpan.url)
                 }
+                shouldOpen
             }
-        }
 
-        // 返回 true 表示事件已处理，系统不会继续处理
-        return true
+            MotionEvent.ACTION_CANCEL -> {
+                clearPressedLink(buffer)
+                false
+            }
+
+            else -> false
+        }
     }
 
-    // 获取点击位置的链接
-    private fun getClickedLink(buffer: android.text.Spannable, offset: Int): String? {
-        val spans = buffer.getSpans(offset, offset, android.text.style.URLSpan::class.java)
-        if (spans.isNotEmpty()) {
-            return spans[0].url
+    private fun findClickedLink(widget: TextView, buffer: Spannable, event: MotionEvent): URLSpan? {
+        val x = (event.x - widget.totalPaddingLeft + widget.scrollX).toInt()
+        val y = (event.y - widget.totalPaddingTop + widget.scrollY).toInt()
+        val layout = widget.layout ?: return null
+        if (x < 0 || y < 0 || x > layout.width || y > layout.height) {
+            return null
         }
-        return null
+
+        val line = layout.getLineForVertical(y)
+        if (x > layout.getLineRight(line)) return null
+        val offset = layout.getOffsetForHorizontal(line, x.toFloat())
+        return buffer.getSpans(offset, offset, URLSpan::class.java).firstOrNull()
+    }
+
+    private fun clearPressedLink(buffer: Spannable) {
+        pressedSpan = null
+        Selection.removeSelection(buffer)
     }
 }

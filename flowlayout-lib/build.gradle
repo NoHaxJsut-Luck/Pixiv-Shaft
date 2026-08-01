@@ -1,19 +1,19 @@
 apply plugin: 'com.android.library'
 
 android {
-    compileSdk 36
+    compileSdk = 36
 
     defaultConfig {
-        minSdkVersion 24
-        targetSdkVersion 36
+        minSdk = 24
+        targetSdk = 36
     }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
-    namespace 'com.zhy.view.flowlayout'
+    namespace = 'com.zhy.view.flowlayout'
 }
 
 dependencies {

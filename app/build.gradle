@@ -7,43 +7,61 @@ apply plugin: 'com.google.firebase.crashlytics'
 apply plugin: 'org.jmailen.kotlinter'
 apply plugin: 'androidx.navigation.safeargs.kotlin'
 
+def localSigningProperties = new Properties()
+def localSigningPropertiesFile = rootProject.file("keystore.properties")
+if (localSigningPropertiesFile.exists()) {
+    localSigningPropertiesFile.withInputStream { localSigningProperties.load(it) }
+}
+def signingValue = { String name, String defaultValue = null ->
+    providers.gradleProperty(name).orElse(providers.environmentVariable(name)).orNull ?:
+            localSigningProperties.getProperty(name, defaultValue)
+}
+def releaseStoreFile = signingValue("SHAFT_STORE_FILE", "../keystore.jks")
+def releaseStorePassword = signingValue("SHAFT_STORE_PASSWORD")
+def releaseKeyAlias = signingValue("SHAFT_KEY_ALIAS")
+def releaseKeyPassword = signingValue("SHAFT_KEY_PASSWORD")
+def hasReleaseSigning = releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 android {
-    compileSdk 36
+    compileSdk = 36
 
 
     defaultConfig {
         applicationId "ceui.pixiv"
-        minSdkVersion 24
-        targetSdkVersion 36
-        versionCode 560
-        versionName "5.0.20"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 560
+        versionName = "5.0.20"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        release {
-            storeFile file("../keystore.jks")
-            storePassword "123456"
-            keyAlias 'CeuiLiSA'
-            keyPassword '123456'
+        if (hasReleaseSigning) {
+            release {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
     buildTypes {
         debug {
-            minifyEnabled false
+            minifyEnabled = false
             buildConfigField "boolean", "IS_DEBUG_MODE", "true"
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
 
             applicationIdSuffix ".dshaft"
             resValue "string", "app_name", "Shaft (Debug)"
         }
         release {
-            minifyEnabled false
+            minifyEnabled = false
             buildConfigField "boolean", "IS_DEBUG_MODE", "false"
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.release
+            }
 
             applicationIdSuffix ".shaft"
             resValue "string", "app_name", "Shaft (Classic)"
@@ -52,8 +70,8 @@ android {
 
     compileOptions {
         coreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     sourceSets {
@@ -64,8 +82,8 @@ android {
     }
 
     buildFeatures {
-        dataBinding true
-        viewBinding true
+        dataBinding = true
+        viewBinding = true
         buildConfig = true // 启用 BuildConfig
     }
     packagingOptions {
@@ -74,9 +92,21 @@ android {
         }
     }
 
-    namespace 'ceui.lisa'
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+    }
+
+    namespace = 'ceui.lisa'
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_21
+        jvmTarget = JavaVersion.VERSION_17
+    }
+}
+
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "true")
     }
 }
 

@@ -25,6 +25,7 @@ import com.tencent.mmkv.MMKV;
 import org.jetbrains.annotations.NotNull;
 
 import ceui.lisa.R;
+import ceui.lisa.BuildConfig;
 import ceui.lisa.database.AppDatabase;
 import ceui.lisa.feature.HostManager;
 import ceui.lisa.helper.ShortcutHelper;
@@ -125,7 +126,9 @@ public class Shaft extends Application implements ServicesProvider {
 
         sPreferences = getSharedPreferences(LOCAL_DATA, Context.MODE_PRIVATE);
 
-        Timber.plant(new Timber.DebugTree());
+        if (BuildConfig.DEBUG) {
+            Timber.plant(new Timber.DebugTree());
+        }
 
         MMKV.initialize(this);
 
@@ -146,7 +149,10 @@ public class Shaft extends Application implements ServicesProvider {
 
         ThemeHelper.applyTheme(null, sSettings.getThemeType());
 
-        this.mOkHttpClient = ProgressManager.getInstance().with(new OkHttpClient.Builder()).build();
+        HostManager.get().init();
+        this.mOkHttpClient = ProgressManager.getInstance()
+                .with(new OkHttpClient.Builder().dns(HostManager.get()))
+                .build();
 
         //计算状态栏高度并赋值
         statusHeight = 0;
@@ -160,8 +166,6 @@ public class Shaft extends Application implements ServicesProvider {
         if (netWorkStateReceiver == null) {
             netWorkStateReceiver = new NetWorkStateReceiver();
         }
-
-        HostManager.get().init();
 
         //Init Toast utils
         ToastUtils.init(this);

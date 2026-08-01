@@ -4,6 +4,11 @@ package ceui.lisa.feature;
 import android.net.Uri;
 import android.text.TextUtils;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.Collections;
+import java.util.List;
+
 import ceui.lisa.activities.Shaft;
 import ceui.lisa.http.CloudFlareDNSResponse;
 import ceui.lisa.http.CloudFlareDNSService;
@@ -11,15 +16,14 @@ import ceui.lisa.utils.Common;
 import ceui.lisa.utils.Dev;
 import retrofit2.Call;
 import retrofit2.Callback;
+import okhttp3.Dns;
 
-public class HostManager {
+public class HostManager implements Dns {
 
     //For example:https://i.pximg.net/img-original/img/2024/02/28/05/42/23/116457142_p0.jpg
     public static final String HOST_OLD = "i.pximg.net";
 //    public static final String HOST_OLD = "app-api.pixiv.net";
     public static final String HOST_NEW = "i.pixiv.re";
-    private static final String HTTP_HEAD = "http://";
-
     private static final String LOGIN_HEAD = "https://app-api.pixiv.net/web/v1/login?code_challenge=";
     private static final String LOGIN_END = "&code_challenge_method=S256&client=pixiv-android";
     private static final String SIGN_HEAD = "https://app-api.pixiv.net/web/v1/provisional-accounts/create?code_challenge=";
@@ -119,27 +123,27 @@ public class HostManager {
             String finalUrl = before.replace(HOST_OLD, HOST_NEW);
             if(showDetail) Common.showLog("HostManager after0 " + finalUrl);
             return finalUrl;
-        } else if (Shaft.sSettings.isAutoFuckChina() && before.contains(HOST_OLD)) { //此处修改为只替换i.pximg.net地址，s.pximg.net不替换
-            String result = resizeUrl(before);
-            if(showDetail) Common.showLog("HostManager after1 " + result);
-            return result;
+        } else if (Shaft.sSettings.isAutoFuckChina() && before.contains(HOST_OLD)) {
+            // 保留 HTTPS 主机名，通过 OkHttp DNS 定向到解析出的地址，避免明文 HTTP 和证书绕过。
+            if(showDetail) Common.showLog("HostManager secure DNS " + before);
+            return before;
         } else {
             if(showDetail) Common.showLog("HostManager after1 " + before);
             return before;
         }
     }
 
-    private String resizeUrl(String url) {
-        if (TextUtils.isEmpty(host)) {
-            host = randomHost();
+    @Override
+    public List<InetAddress> lookup(String hostname) throws UnknownHostException {
+        if (Shaft.sSettings != null && Shaft.sSettings.isAutoFuckChina() && HOST_OLD.equals(hostname)) {
+            String resolvedHost = TextUtils.isEmpty(host) ? randomHost() : host;
+            try {
+                return Collections.singletonList(InetAddress.getByName(resolvedHost));
+            } catch (Exception e) {
+                Common.showLog("HostManager DNS fallback: " + e);
+            }
         }
-        try {
-            Uri uri = Uri.parse(url);
-            return HTTP_HEAD + host + uri.getPath();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return HTTP_HEAD + host + url.substring(19);
-        }
+        return Dns.SYSTEM.lookup(hostname);
     }
 
     public PKCEItem getPkce() {

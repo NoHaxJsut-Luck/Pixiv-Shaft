@@ -1,7 +1,5 @@
 package ceui.pixiv.ui.detail
 
-import android.text.method.LinkMovementMethod
-import androidx.core.text.HtmlCompat
 import androidx.core.view.isVisible
 import ceui.lisa.R
 import ceui.lisa.annotations.ItemHolder
@@ -13,9 +11,8 @@ import ceui.loxia.Illust
 import ceui.loxia.ObjectPool
 import ceui.pixiv.ui.common.ListItemHolder
 import ceui.pixiv.ui.common.ListItemViewHolder
-import ceui.pixiv.ui.novel.CustomLinkMovementMethod
+import ceui.pixiv.ui.common.setCaptionHtml
 import ceui.pixiv.utils.setOnClick
-import timber.log.Timber
 
 
 class ArtworkCaptionHolder(val illustId: Long) : ListItemHolder() {
@@ -34,7 +31,7 @@ class ArtworkCaptionViewHolder(bd: CellArtworkCaptionBinding) : ListItemViewHold
         liveIllust.observe(lifecycleOwner) { illust ->
             if (illust.caption?.isNotEmpty() == true) {
                 binding.caption.isVisible = true
-                binding.caption.text = HtmlCompat.fromHtml(illust.caption, HtmlCompat.FROM_HTML_MODE_COMPACT)
+                binding.caption.setCaptionHtml(illust.caption)
             } else {
                 binding.caption.isVisible = false
             }

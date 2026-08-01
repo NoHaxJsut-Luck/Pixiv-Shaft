@@ -1,5 +1,6 @@
 package ceui.pixiv.ui.novel
 
+import android.util.Log
 import ceui.lisa.R
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -31,6 +32,7 @@ class NovelTextViewModel(
 
     private val _webNovel = MutableLiveData<WebNovel>()
     val webNovel: LiveData<WebNovel> = _webNovel
+    private var renderedText: String? = null
 
     init {
         refresh(RefreshHint.InitialLoad)
@@ -53,12 +55,13 @@ class NovelTextViewModel(
         result.add(SpaceHolder())
 
         wNovel?.let {
-            (wNovel.text?.split("\n") ?: listOf()).forEach { oneLineText ->
+            (it.text?.split("\n") ?: listOf()).forEach { oneLineText ->
                 result.addAll(
-                    WebNovelParser.buildNovelHolders(wNovel, oneLineText)
+                    WebNovelParser.buildNovelHolders(it, oneLineText)
                 )
             }
             _webNovel.value = it
+            renderedText = it.text
         }
         result.add(SpaceHolder())
         result.add(NovelTextHolder("<===== End =====>", Common.getNovelTextColor()))
@@ -68,5 +71,36 @@ class NovelTextViewModel(
         _refreshState.value = RefreshState.LOADED(
             hasContent = true, hasNext = false
         )
+    }
+
+    fun updateNovelText(translatedText: String) {
+        if (renderedText == translatedText) return
+        renderedText = translatedText
+        val head = if (translatedText.length <= 50) translatedText else "${translatedText.take(50)}..."
+        Log.d("Translation", "ViewModel received text to update: $head")
+        val wNovel = _webNovel.value
+        val context = Shaft.getContext()
+        val result = mutableListOf<ListItemHolder>()
+        result.add(SpaceHolder())
+        result.add(NovelHeaderHolder(novelId))
+        result.add(RedSectionHeaderHolder(context.getString(R.string.string_432)))
+        result.add(UserInfoHolder(ObjectPool.get<Novel>(novelId).value?.user?.id ?: 0L))
+        result.add(RedSectionHeaderHolder("简介"))
+        result.add(NovelCaptionHolder(novelId))
+        result.add(RedSectionHeaderHolder("正文"))
+        result.add(SpaceHolder())
+
+        wNovel?.let {
+            (translatedText.split("\n") ?: listOf()).forEach { oneLineText ->
+                result.addAll(
+                    WebNovelParser.buildNovelHolders(it, oneLineText)
+                )
+            }
+        }
+        result.add(SpaceHolder())
+        result.add(NovelTextHolder("<===== End =====>", Common.getNovelTextColor()))
+        result.add(SpaceHolder())
+
+        _itemHolders.value = result
     }
 }
