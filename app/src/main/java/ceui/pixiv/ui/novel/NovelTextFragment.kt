@@ -1,7 +1,6 @@
 package ceui.pixiv.ui.novel
 
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
@@ -18,6 +17,7 @@ import ceui.loxia.pushFragment
 import ceui.loxia.requireEntityWrapper
 import ceui.pixiv.translation.TranslationApiKeyStore
 import ceui.pixiv.translation.TranslationConfig
+import ceui.pixiv.translation.TranslationErrorMessages
 import ceui.pixiv.translation.TranslationManager
 import ceui.pixiv.ui.comments.CommentsFragmentArgs
 import ceui.pixiv.ui.common.FitsSystemWindowFragment
@@ -104,10 +104,37 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
                         }
                     )
                     add(
-                        MenuItem(getString(R.string.translate)) {
-                            translate(webNovel.text)
+                        MenuItem(
+                            getString(
+                                if (isTranslating) R.string.translation_cancel else R.string.translate,
+                            ),
+                        ) {
+                            if (isTranslating) {
+                                cancelTranslation(showMessage = true)
+                            } else {
+                                translate(textModel.sourceText())
+                            }
                         }
                     )
+                    if (textModel.hasTranslation) {
+                        add(
+                            MenuItem(
+                                getString(
+                                    if (textModel.isShowingTranslation) {
+                                        R.string.translation_show_original
+                                    } else {
+                                        R.string.translation_show_result
+                                    },
+                                ),
+                            ) {
+                                if (textModel.isShowingTranslation) {
+                                    textModel.showOriginal()
+                                } else {
+                                    textModel.showTranslation()
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -118,25 +145,30 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
             return
         }
 
-        // 检查是否正在翻译
         if (isTranslating) {
-            Toast.makeText(requireContext(), R.string.translation_in_progress, Toast.LENGTH_SHORT).show()
+            cancelTranslation(showMessage = true)
             return
         }
 
-        // 取消之前的翻译任务（如果有）
         translationJob?.cancel()
 
         isTranslating = true
-        Log.d("Translation", "Starting translation, isTranslating=true")
-        val preview = if (text.length <= 50) text else "${text.take(50)}..."
-        Log.d("Translation", "Original Text to translate: $preview")
 
         translationJob = viewLifecycleOwner.lifecycleScope.launch {
             val loadingLayout = binding.loadingLayout
             loadingLayout.visibility = View.VISIBLE
             val loadingText = loadingLayout.findViewById<TextView>(R.id.progress_text)
-            loadingText?.text = "正在翻译..."
+            var progressLabel = getString(R.string.translation_in_progress)
+            var previewLabel = ""
+
+            fun renderProgress() {
+                loadingText?.text = if (previewLabel.isEmpty()) {
+                    progressLabel
+                } else {
+                    getString(R.string.translation_preview, progressLabel, previewLabel)
+                }
+            }
+            renderProgress()
 
             try {
                 val apiKey = TranslationApiKeyStore.getApiKey()
@@ -157,40 +189,52 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
                     to = "Chinese",
                     context = requireContext(),
                     onProgress = { partialResult ->
-                        textModel.updateNovelText(partialResult)
+                        previewLabel = partialResult
+                            .takeLast(120)
+                            .replace('\n', ' ')
+                            .trim()
+                        renderProgress()
                     },
                     onProgressUpdate = { completed, total, srcDone, srcTotal ->
                         val pct = if (srcTotal > 0) (srcDone * 100 / srcTotal) else 0
-                        loadingText?.text = getString(
+                        progressLabel = getString(
                             R.string.translation_progress_detail,
                             completed,
                             total,
                             pct,
                         )
+                        renderProgress()
                     },
                 )
 
-                textModel.updateNovelText(translatedText)
+                textModel.applyTranslation(translatedText)
                 Toast.makeText(requireContext(), R.string.translation_complete, Toast.LENGTH_SHORT).show()
-                Log.d("Translation", "Translation completed successfully")
             } catch (e: CancellationException) {
-                Log.d("Translation", "Translation cancelled by user or lifecycle")
                 throw e
             } catch (e: Exception) {
-                Log.e("Translation", "Translation failed", e)
-                Toast.makeText(requireContext(), R.string.translation_failed, Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    requireContext(),
+                    TranslationErrorMessages.get(requireContext(), e),
+                    Toast.LENGTH_LONG,
+                ).show()
             } finally {
                 loadingLayout.visibility = View.GONE
                 isTranslating = false
-                Log.d("Translation", "Translation finished, isTranslating=false")
+                translationJob = null
             }
         }
     }
 
-    override fun onDestroyView() {
-        // 取消翻译任务
-        Log.d("Translation", "Fragment destroying, cancelling translation job")
+    private fun cancelTranslation(showMessage: Boolean) {
+        if (!isTranslating) return
         translationJob?.cancel()
+        if (showMessage && isAdded) {
+            Toast.makeText(requireContext(), R.string.translation_cancelled, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onDestroyView() {
+        cancelTranslation(showMessage = false)
         translationJob = null
         isTranslating = false
         super.onDestroyView()

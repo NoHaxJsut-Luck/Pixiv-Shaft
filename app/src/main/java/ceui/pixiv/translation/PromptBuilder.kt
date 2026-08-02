@@ -1,12 +1,6 @@
 package ceui.pixiv.translation
 
-import android.util.Log
-
 class PromptBuilder {
-
-    companion object {
-        private const val TAG = "PromptBuilder"
-    }
 
     private val config = TranslationConfig.getInstance()
 
@@ -23,9 +17,7 @@ class PromptBuilder {
             "summary_prompt" to summaryPrompt,
             "terms_prompt" to termsPrompt
         )
-        val result = config.replaceVariables(template, variables)
-        Log.d(TAG, "Built system prompt: ${result.take(100)}...")
-        return result
+        return config.replaceVariables(template, variables)
     }
 
     fun buildSingleParagraphPrompt(
@@ -43,9 +35,7 @@ class PromptBuilder {
             "content_type" to contentType,
             "html_only" to htmlOnly
         )
-        val result = config.replaceVariables(template, variables)
-        Log.d(TAG, "Built single paragraph prompt: ${result.take(100)}...")
-        return result
+        return config.replaceVariables(template, variables)
     }
 
     fun buildMultiParagraphPrompt(
@@ -65,9 +55,7 @@ class PromptBuilder {
             "imt_trans_field" to imtTransField,
             "html_only" to htmlOnly
         )
-        val result = config.replaceVariables(template, variables)
-        Log.d(TAG, "Built multi paragraph prompt: ${result.take(100)}...")
-        return result
+        return config.replaceVariables(template, variables)
     }
 
     fun buildTranslationRequest(

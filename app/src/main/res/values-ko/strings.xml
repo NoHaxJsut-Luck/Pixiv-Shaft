@@ -615,4 +615,26 @@
   <string name="string_455">AI 작품 을 다른 디 렉 터 리 에 다운로드</string>
   <string name="core_string_novel_marker">책갈피</string>
   <string name="string_font_size">글자 크기</string>
+  <string name="translation_cancel">번역 취소</string>
+  <string name="translation_cancelled">번역을 취소했습니다. 완료된 청크는 다음에 다시 사용됩니다.</string>
+  <string name="translation_show_original">원문 보기</string>
+  <string name="translation_show_result">번역 보기</string>
+  <string name="translation_preview">%1$s\n%2$s</string>
+  <string name="translation_auth_failed">API 키가 잘못되었거나 이 모델에 접근할 수 없습니다</string>
+  <string name="translation_rate_limited">요청이 너무 많습니다. 잠시 후 다시 시도하세요.</string>
+  <string name="translation_api_request_failed">번역 요청이 거부되었습니다(HTTP %1$d)</string>
+  <string name="translation_service_unavailable">번역 서비스를 일시적으로 사용할 수 없습니다</string>
+  <string name="translation_output_invalid">번역이 불완전하거나 소설 마커가 손상되었습니다</string>
+  <string name="translation_model_unavailable">이 API 키로 모델 %1$s을(를) 사용할 수 없습니다</string>
+  <string name="translation_model_title">번역 모델</string>
+  <string name="translation_model_summary">소설 번역에 사용할 xAI 모델</string>
+  <string name="translation_model_invalid">모델 이름 형식이 잘못되었습니다</string>
+  <string name="translation_test_connection">번역 설정 테스트</string>
+  <string name="translation_test_connection_summary">API 키와 모델을 확인합니다</string>
+  <string name="translation_test_success">API 키와 모델을 사용할 수 있습니다</string>
+  <string name="translation_api_key_clear">지우기</string>
+  <string name="translation_api_key_cleared">API 키를 지웠습니다</string>
+  <string name="translation_cache_clear">번역 캐시 지우기</string>
+  <string name="translation_cache_clear_summary">캐시된 번역과 이어받기 데이터를 삭제합니다</string>
+  <string name="translation_cache_cleared">번역 캐시를 지웠습니다</string>
 </resources>

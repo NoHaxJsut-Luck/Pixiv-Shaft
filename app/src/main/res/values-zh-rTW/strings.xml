@@ -716,4 +716,26 @@
   <string name="browse_history">瀏覽紀錄</string>
   <string name="artwork_link">作品連結：%1$s</string>
   <string name="user_link">作者連結：%1$s</string>
+  <string name="translation_cancel">取消翻譯</string>
+  <string name="translation_cancelled">翻譯已取消，已完成的分塊將在下次繼續使用</string>
+  <string name="translation_show_original">顯示原文</string>
+  <string name="translation_show_result">顯示譯文</string>
+  <string name="translation_preview">%1$s\n%2$s</string>
+  <string name="translation_auth_failed">API Key 無效或沒有目前模型的存取權限</string>
+  <string name="translation_rate_limited">請求過於頻繁，請稍後再試</string>
+  <string name="translation_api_request_failed">翻譯請求遭拒（HTTP %1$d）</string>
+  <string name="translation_service_unavailable">翻譯服務暫時無法使用，請稍後再試</string>
+  <string name="translation_output_invalid">模型傳回的譯文不完整或破壞了正文標記</string>
+  <string name="translation_model_unavailable">目前 API Key 無法使用模型 %1$s</string>
+  <string name="translation_model_title">翻譯模型</string>
+  <string name="translation_model_summary">用於小說翻譯的 xAI 模型名稱</string>
+  <string name="translation_model_invalid">模型名稱格式不正確</string>
+  <string name="translation_test_connection">測試翻譯設定</string>
+  <string name="translation_test_connection_summary">檢查 API Key 和模型是否可用</string>
+  <string name="translation_test_success">API Key 和模型設定可用</string>
+  <string name="translation_api_key_clear">清除</string>
+  <string name="translation_api_key_cleared">API Key 已清除</string>
+  <string name="translation_cache_clear">清除翻譯快取</string>
+  <string name="translation_cache_clear_summary">刪除已快取的譯文和斷點資料</string>
+  <string name="translation_cache_cleared">翻譯快取已清除</string>
 </resources>

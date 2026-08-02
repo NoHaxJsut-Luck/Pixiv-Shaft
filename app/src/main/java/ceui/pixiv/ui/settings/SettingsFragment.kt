@@ -1,10 +1,12 @@
 package ceui.pixiv.ui.settings
 
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
 import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import ceui.lisa.R
@@ -26,11 +28,16 @@ import ceui.pixiv.ui.common.TabCellHolder
 import ceui.pixiv.ui.common.setUpCustomAdapter
 import ceui.pixiv.ui.common.viewBinding
 import ceui.pixiv.translation.TranslationApiKeyStore
+import ceui.pixiv.translation.TranslationCacheStore
+import ceui.pixiv.translation.TranslationErrorMessages
+import ceui.pixiv.translation.TranslationManager
+import ceui.pixiv.translation.TranslationSettingsStore
 import ceui.pixiv.ui.common.ListItemHolder
 import ceui.pixiv.ui.web.WebFragmentArgs
 import ceui.pixiv.utils.GSON_DEFAULT
 import ceui.pixiv.widgets.alertYesOrCancel
 import com.tencent.mmkv.MMKV
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActionReceiver {
@@ -107,8 +114,10 @@ class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActi
                     ),
                 ).onItemClick {
                     val edit = EditText(requireContext()).apply {
-                        setText(TranslationApiKeyStore.getApiKey())
                         hint = getString(R.string.translation_xai_api_key_hint)
+                        inputType = InputType.TYPE_CLASS_TEXT or
+                            InputType.TYPE_TEXT_VARIATION_PASSWORD
+                        isSingleLine = true
                     }
                     val pad = (16 * resources.displayMetrics.density).roundToInt()
                     val container = FrameLayout(requireContext()).apply {
@@ -119,14 +128,81 @@ class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActi
                         .setTitle(R.string.translation_xai_api_key_title)
                         .setView(container)
                         .setPositiveButton(R.string.string_190) { _, _ ->
-                            if (TranslationApiKeyStore.setApiKey(edit.text?.toString().orEmpty())) {
+                            val enteredKey = edit.text?.toString().orEmpty().trim()
+                            if (enteredKey.isEmpty()) {
+                                return@setPositiveButton
+                            }
+                            if (TranslationApiKeyStore.setApiKey(enteredKey)) {
                                 adapter.submitList(buildSettingsList())
                             } else {
                                 Common.showToast(getString(R.string.translation_api_key_save_failed), 2)
                             }
                         }
+                        .setNeutralButton(R.string.translation_api_key_clear) { _, _ ->
+                            TranslationApiKeyStore.setApiKey("")
+                            adapter.submitList(buildSettingsList())
+                            Common.showToast(getString(R.string.translation_api_key_cleared), 2)
+                        }
                         .setNegativeButton(R.string.cancel, null)
                         .show()
+                },
+
+                TabCellHolder(
+                    getString(R.string.translation_model_title),
+                    getString(R.string.translation_model_summary),
+                    TranslationSettingsStore.getModel(),
+                ).onItemClick {
+                    val edit = EditText(requireContext()).apply {
+                        setText(TranslationSettingsStore.getModel())
+                        isSingleLine = true
+                        selectAll()
+                    }
+                    val pad = (16 * resources.displayMetrics.density).roundToInt()
+                    val container = FrameLayout(requireContext()).apply {
+                        setPadding(pad, pad / 2, pad, pad / 2)
+                        addView(edit)
+                    }
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(R.string.translation_model_title)
+                        .setView(container)
+                        .setPositiveButton(R.string.string_190) { _, _ ->
+                            if (TranslationSettingsStore.setModel(edit.text?.toString().orEmpty())) {
+                                adapter.submitList(buildSettingsList())
+                            } else {
+                                Common.showToast(getString(R.string.translation_model_invalid), 2)
+                            }
+                        }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                },
+
+                TabCellHolder(
+                    getString(R.string.translation_test_connection),
+                    getString(R.string.translation_test_connection_summary),
+                ).onItemClick {
+                    val apiKey = TranslationApiKeyStore.getApiKey()
+                    if (apiKey.isEmpty()) {
+                        Common.showToast(getString(R.string.translation_xai_api_key_required), 2)
+                        return@onItemClick
+                    }
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        runCatching {
+                            TranslationManager.getInstance().validateConfiguration(apiKey)
+                        }.onSuccess {
+                            Common.showToast(getString(R.string.translation_test_success), 2)
+                        }.onFailure { error ->
+                            Common.showToast(TranslationErrorMessages.get(requireContext(), error), 2)
+                        }
+                    }
+                },
+
+                TabCellHolder(
+                    getString(R.string.translation_cache_clear),
+                    getString(R.string.translation_cache_clear_summary),
+                ).onItemClick {
+                    if (TranslationCacheStore.clear(requireContext())) {
+                        Common.showToast(getString(R.string.translation_cache_cleared), 2)
+                    }
                 },
 
                 TabCellHolder(

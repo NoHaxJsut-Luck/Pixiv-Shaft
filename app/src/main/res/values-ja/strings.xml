@@ -703,4 +703,26 @@
   <string name="new_ui_desc">新しいUIへの準備は終わり、機能の移植もほぼ完了しました。先行体験を始めましょう！（新バージョンはまだプロキシに対応していないので、中国大陸で使用するにはVPNが必要です。）</string>
   <string name="alert_when_turn_off_v5_ui">既存のUIに切り替えますか？</string>
   <string name="blocking_list">ミュート設定</string>
+  <string name="translation_cancel">翻訳をキャンセル</string>
+  <string name="translation_cancelled">翻訳をキャンセルしました。完了済みの分割は次回再利用されます。</string>
+  <string name="translation_show_original">原文を表示</string>
+  <string name="translation_show_result">翻訳を表示</string>
+  <string name="translation_preview">%1$s\n%2$s</string>
+  <string name="translation_auth_failed">APIキーが無効か、このモデルへのアクセス権がありません</string>
+  <string name="translation_rate_limited">リクエストが多すぎます。しばらくしてから再試行してください。</string>
+  <string name="translation_api_request_failed">翻訳リクエストが拒否されました（HTTP %1$d）</string>
+  <string name="translation_service_unavailable">翻訳サービスは一時的に利用できません</string>
+  <string name="translation_output_invalid">翻訳が不完全か、小説のマーカーが破損しました</string>
+  <string name="translation_model_unavailable">このAPIキーではモデル %1$s を利用できません</string>
+  <string name="translation_model_title">翻訳モデル</string>
+  <string name="translation_model_summary">小説翻訳に使用するxAIモデル</string>
+  <string name="translation_model_invalid">モデル名の形式が正しくありません</string>
+  <string name="translation_test_connection">翻訳設定をテスト</string>
+  <string name="translation_test_connection_summary">APIキーとモデルを確認します</string>
+  <string name="translation_test_success">APIキーとモデルを利用できます</string>
+  <string name="translation_api_key_clear">消去</string>
+  <string name="translation_api_key_cleared">APIキーを消去しました</string>
+  <string name="translation_cache_clear">翻訳キャッシュを消去</string>
+  <string name="translation_cache_clear_summary">キャッシュ済み翻訳と再開データを削除します</string>
+  <string name="translation_cache_cleared">翻訳キャッシュを消去しました</string>
 </resources>

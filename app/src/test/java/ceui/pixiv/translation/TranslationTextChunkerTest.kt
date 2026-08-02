@@ -28,6 +28,28 @@ class TranslationTextChunkerTest {
     }
 
     @Test
+    fun doesNotSplitPixivMarkers() {
+        val marker = "[uploadedimage:123456789]"
+        val source = "a".repeat(15) + marker + "b".repeat(20)
+
+        val chunks = TranslationTextChunker.split(source, 20)
+
+        assertEquals(source, TranslationTextChunker.merge(chunks))
+        assertTrue(chunks.any { it.contains(marker) })
+        assertTrue(chunks.none { it.contains("[uploadedimage:") && !it.contains(']') })
+    }
+
+    @Test
+    fun doesNotSplitSurrogatePairs() {
+        val source = "a".repeat(9) + "😀" + "b".repeat(9)
+
+        val chunks = TranslationTextChunker.split(source, 10)
+
+        assertEquals(source, TranslationTextChunker.merge(chunks))
+        assertTrue(chunks.none { it.lastOrNull()?.isHighSurrogate() == true })
+    }
+
+    @Test
     fun emptyTextProducesNoRequests() {
         assertTrue(TranslationTextChunker.split("", 100).isEmpty())
     }

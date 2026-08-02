@@ -3,7 +3,7 @@ package ceui.pixiv.translation
 import android.content.Context
 import android.util.Log
 import java.io.File
-import java.io.FileInputStream
+import java.io.InputStreamReader
 import java.io.IOException
 import java.util.Properties
 
@@ -11,7 +11,9 @@ class TranslationConfig private constructor() {
 
     companion object {
         private const val TAG = "TranslationConfig"
-        private const val CONFIG_FILE_NAME = "以系统身份发送给Grok的翻译请求，其中{{text}}表示需要翻译的段落内容，.ini"
+        private const val CONFIG_FILE_NAME = "translation_prompt.properties"
+        private const val LEGACY_CONFIG_FILE_NAME =
+            "以系统身份发送给Grok的翻译请求，其中{{text}}表示需要翻译的段落内容，.ini"
 
         @Volatile
         private var instance: TranslationConfig? = null
@@ -32,12 +34,14 @@ class TranslationConfig private constructor() {
         if (isLoaded) return
         loadDefaultConfig()
         try {
-            val configFile = File(context.filesDir, CONFIG_FILE_NAME)
-            if (configFile.exists()) {
-                Log.d(TAG, "Loading config from: ${configFile.absolutePath}")
+            val configFile = listOf(
+                File(context.filesDir, CONFIG_FILE_NAME),
+                File(context.filesDir, LEGACY_CONFIG_FILE_NAME),
+            ).firstOrNull { it.exists() }
+            if (configFile != null) {
                 loadFromFile(configFile)
             } else {
-                Log.d(TAG, "Config file not found, using default config")
+                Log.d(TAG, "Custom translation prompt not found; using defaults")
             }
             isLoaded = true
         } catch (e: Exception) {
@@ -48,9 +52,9 @@ class TranslationConfig private constructor() {
 
     fun loadFromFile(file: File) {
         try {
-            FileInputStream(file).use { fis ->
+            InputStreamReader(file.inputStream(), Charsets.UTF_8).use { reader ->
                 val properties = Properties()
-                properties.load(fis)
+                properties.load(reader)
                 properties.forEach { key, value ->
                     val normalizedKey = key.toString()
                     val normalizedValue = value.toString()

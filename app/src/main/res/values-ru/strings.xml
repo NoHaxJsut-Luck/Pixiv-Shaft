@@ -608,4 +608,26 @@
   <string name="string_454">Поделитесь первой картинкой</string>
   <string name="string_455">работа AI загружена в другой каталог</string>
   <string name="string_font_size">Размер шрифта</string>
+  <string name="translation_cancel">Отменить перевод</string>
+  <string name="translation_cancelled">Перевод отменён. Готовые части будут использованы при следующем запуске.</string>
+  <string name="translation_show_original">Показать оригинал</string>
+  <string name="translation_show_result">Показать перевод</string>
+  <string name="translation_preview">%1$s\n%2$s</string>
+  <string name="translation_auth_failed">Ключ API недействителен или не имеет доступа к этой модели</string>
+  <string name="translation_rate_limited">Слишком много запросов. Повторите попытку позже.</string>
+  <string name="translation_api_request_failed">Запрос перевода отклонён (HTTP %1$d)</string>
+  <string name="translation_service_unavailable">Сервис перевода временно недоступен</string>
+  <string name="translation_output_invalid">Перевод неполный или повредил маркеры новеллы</string>
+  <string name="translation_model_unavailable">Модель %1$s недоступна для этого ключа API</string>
+  <string name="translation_model_title">Модель перевода</string>
+  <string name="translation_model_summary">Модель xAI для перевода новелл</string>
+  <string name="translation_model_invalid">Неверное имя модели</string>
+  <string name="translation_test_connection">Проверить настройки перевода</string>
+  <string name="translation_test_connection_summary">Проверить ключ API и модель</string>
+  <string name="translation_test_success">Ключ API и модель доступны</string>
+  <string name="translation_api_key_clear">Очистить</string>
+  <string name="translation_api_key_cleared">Ключ API удалён</string>
+  <string name="translation_cache_clear">Очистить кэш перевода</string>
+  <string name="translation_cache_clear_summary">Удалить переводы и данные продолжения из кэша</string>
+  <string name="translation_cache_cleared">Кэш перевода очищен</string>
 </resources>

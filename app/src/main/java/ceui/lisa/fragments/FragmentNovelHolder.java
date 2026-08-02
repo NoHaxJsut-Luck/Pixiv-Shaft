@@ -9,7 +9,6 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.MotionEvent;
@@ -22,7 +21,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.blankj.utilcode.util.BarUtils;
@@ -87,9 +85,9 @@ import ceui.loxia.SpaceHolder;
 import ceui.loxia.TextDescHolder;
 import ceui.loxia.WebNovel;
 import ceui.lisa.helper.TranslationHelper;
-import ceui.lisa.helper.TextProcessor;
 import ceui.pixiv.translation.TranslationApiKeyStore;
 import ceui.pixiv.translation.TranslationConfig;
+import ceui.pixiv.translation.TranslationErrorMessages;
 import ceui.pixiv.ui.common.CommonAdapter;
 import ceui.pixiv.ui.common.ListItemHolder;
 import gdut.bsx.share2.Share2;
@@ -114,6 +112,10 @@ public class FragmentNovelHolder extends BaseFragment<FragmentNovelHolderBinding
     private NovelDetail mNovelDetail;
     private WebNovel mWebNovel;
     private TranslationHelper translationHelper;
+    private String originalNovelText;
+    private String translatedNovelText;
+    private long translationNovelId = -1L;
+    private boolean showingTranslation;
 
     public static FragmentNovelHolder newInstance(NovelBean novelBean) {
         Bundle args = new Bundle();
@@ -178,6 +180,16 @@ public class FragmentNovelHolder extends BaseFragment<FragmentNovelHolderBinding
     }
 
     private void displayNovel(NovelBean novelBean) {
+        if (translationNovelId != novelBean.getId()) {
+            if (translationHelper != null) {
+                translationHelper.release();
+                translationHelper = null;
+            }
+            translationNovelId = novelBean.getId();
+            originalNovelText = null;
+            translatedNovelText = null;
+            showingTranslation = false;
+        }
         mNovelBean = novelBean;
         if (mNovelBean.isIs_bookmarked()) {
             baseBind.like.setText(mContext.getString(R.string.string_179));
@@ -379,6 +391,7 @@ public class FragmentNovelHolder extends BaseFragment<FragmentNovelHolderBinding
         }
         baseBind.toolbar.getMenu().clear();
         baseBind.toolbar.inflateMenu(R.menu.novel_read_menu);
+        updateTranslationMenu();
         baseBind.toolbar.getOverflowIcon().setTint(Common.getNovelTextColor());
         baseBind.saveNovelTxt.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -465,7 +478,10 @@ public class FragmentNovelHolder extends BaseFragment<FragmentNovelHolderBinding
                     return true;
                 } else if (item.getItemId() == R.id.action_translate) {
                     if (translationHelper != null && translationHelper.isRunning()) {
-                        Common.showToast(getString(R.string.translation_in_progress), 2);
+                        translationHelper.release();
+                        translationHelper = null;
+                        updateTranslationMenu();
+                        Common.showToast(getString(R.string.translation_cancelled), 2);
                         return true;
                     }
                     String apiKey = TranslationApiKeyStore.getApiKey();
@@ -474,11 +490,18 @@ public class FragmentNovelHolder extends BaseFragment<FragmentNovelHolderBinding
                         return false;
                     }
                     translationHelper = new TranslationHelper(mContext, baseBind.progressRela);
-                    final String novelText = String.valueOf(mNovelDetail.getNovel_text());
+                    if (originalNovelText == null) {
+                        originalNovelText = String.valueOf(mNovelDetail.getNovel_text());
+                    }
+                    final String novelText = originalNovelText;
+                    item.setTitle(R.string.translation_cancel);
 
                     translationHelper.translate(novelText, apiKey, new TranslationHelper.TranslationCallback() {
                         @Override
                         public void onTranslationComplete(String result) {
+                            translatedNovelText = result;
+                            showingTranslation = true;
+                            translationHelper = null;
                             mNovelDetail.setNovel_text(result);
                             mNovelDetail
                                     .setParsedChapters(NovelParseHelper.tryParseChapters(mNovelDetail.getNovel_text()));
@@ -487,55 +510,46 @@ public class FragmentNovelHolder extends BaseFragment<FragmentNovelHolderBinding
 
                         @Override
                         public void onTranslationFailed(Exception e) {
-                            Log.e("Translation", "Failed", e);
-                            Common.showToast(getString(R.string.translation_failed), 2);
+                            translationHelper = null;
+                            updateTranslationMenu();
+                            Common.showToast(TranslationErrorMessages.INSTANCE.get(mContext, e), 2);
                         }
 
                         @Override
                         public void onTranslationChunkReceived(int chunkIndex, String chunkResult,
                                 String partialResult) {
-                            // 保存精确的滚动位置(包括offset)
-                            int currentPosition = -1;
-                            int currentOffset = 0;
-                            RecyclerView.LayoutManager layoutManager = baseBind.viewPager.getLayoutManager();
-                            if (layoutManager instanceof LinearLayoutManager) {
-                                LinearLayoutManager linearLayoutManager = (LinearLayoutManager) layoutManager;
-                                currentPosition = linearLayoutManager.findFirstVisibleItemPosition();
-                                // 获取第一个可见item的顶部偏移量
-                                View firstVisibleView = linearLayoutManager.findViewByPosition(currentPosition);
-                                if (firstVisibleView != null) {
-                                    currentOffset = firstVisibleView.getTop();
-                                }
-                            }
-
-                            // 更新翻译结果
-                            mNovelDetail.setNovel_text(partialResult);
-                            mNovelDetail
-                                    .setParsedChapters(NovelParseHelper.tryParseChapters(mNovelDetail.getNovel_text()));
-                            refreshDetail(mNovelDetail);
-
-                            // 恢复精确的滚动位置
-                            final int savedPosition = currentPosition;
-                            final int savedOffset = currentOffset;
-                            baseBind.viewPager.post(() -> {
-                                if (savedPosition >= 0
-                                        && baseBind.viewPager.getAdapter() != null
-                                        && savedPosition < baseBind.viewPager.getAdapter().getItemCount()) {
-                                    RecyclerView.LayoutManager newLayoutManager = baseBind.viewPager.getLayoutManager();
-                                    if (newLayoutManager instanceof LinearLayoutManager) {
-                                        // 使用scrollToPositionWithOffset精确恢复位置
-                                        ((LinearLayoutManager) newLayoutManager)
-                                                .scrollToPositionWithOffset(savedPosition, savedOffset);
-                                    }
-                                }
-                            });
+                            // Streaming output is progress-only. Commit after all chunks succeed.
                         }
                     });
+                    return true;
+                } else if (item.getItemId() == R.id.action_toggle_translation) {
+                    if (originalNovelText == null || translatedNovelText == null) return true;
+                    showingTranslation = !showingTranslation;
+                    String visibleText = showingTranslation ? translatedNovelText : originalNovelText;
+                    mNovelDetail.setNovel_text(visibleText);
+                    mNovelDetail.setParsedChapters(NovelParseHelper.tryParseChapters(visibleText));
+                    refreshDetail(mNovelDetail);
                     return true;
                 }
                 return false;
             }
         });
+    }
+
+    private void updateTranslationMenu() {
+        if (baseBind == null) return;
+        MenuItem translateItem = baseBind.toolbar.getMenu().findItem(R.id.action_translate);
+        if (translateItem != null) {
+            boolean running = translationHelper != null && translationHelper.isRunning();
+            translateItem.setTitle(running ? R.string.translation_cancel : R.string.translate);
+        }
+        MenuItem toggleItem = baseBind.toolbar.getMenu().findItem(R.id.action_toggle_translation);
+        if (toggleItem != null) {
+            toggleItem.setVisible(originalNovelText != null && translatedNovelText != null);
+            toggleItem.setTitle(showingTranslation
+                    ? R.string.translation_show_original
+                    : R.string.translation_show_result);
+        }
     }
 
 

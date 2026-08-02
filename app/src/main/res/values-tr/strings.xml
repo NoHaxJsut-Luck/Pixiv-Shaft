@@ -608,4 +608,26 @@
   <string name="string_454">İlk resmi paylaş</string>
   <string name="string_455">AI çalışmalarını başka bir dizine kaydet</string>
   <string name="string_font_size">Yazı tipi boyutu</string>
+  <string name="translation_cancel">Çeviriyi iptal et</string>
+  <string name="translation_cancelled">Çeviri iptal edildi. Tamamlanan parçalar sonraki sefer kullanılacak.</string>
+  <string name="translation_show_original">Orijinali göster</string>
+  <string name="translation_show_result">Çeviriyi göster</string>
+  <string name="translation_preview">%1$s\n%2$s</string>
+  <string name="translation_auth_failed">API anahtarı geçersiz veya bu modele erişemiyor</string>
+  <string name="translation_rate_limited">Çok fazla istek gönderildi. Daha sonra tekrar deneyin.</string>
+  <string name="translation_api_request_failed">Çeviri isteği reddedildi (HTTP %1$d)</string>
+  <string name="translation_service_unavailable">Çeviri hizmeti geçici olarak kullanılamıyor</string>
+  <string name="translation_output_invalid">Çeviri eksik veya roman işaretleri bozuldu</string>
+  <string name="translation_model_unavailable">%1$s modeli bu API anahtarıyla kullanılamıyor</string>
+  <string name="translation_model_title">Çeviri modeli</string>
+  <string name="translation_model_summary">Roman çevirisinde kullanılacak xAI modeli</string>
+  <string name="translation_model_invalid">Model adı geçersiz</string>
+  <string name="translation_test_connection">Çeviri ayarlarını test et</string>
+  <string name="translation_test_connection_summary">API anahtarını ve modeli kontrol et</string>
+  <string name="translation_test_success">API anahtarı ve model kullanılabilir</string>
+  <string name="translation_api_key_clear">Temizle</string>
+  <string name="translation_api_key_cleared">API anahtarı temizlendi</string>
+  <string name="translation_cache_clear">Çeviri önbelleğini temizle</string>
+  <string name="translation_cache_clear_summary">Önbelleğe alınan çevirileri ve devam verilerini sil</string>
+  <string name="translation_cache_cleared">Çeviri önbelleği temizlendi</string>
 </resources>

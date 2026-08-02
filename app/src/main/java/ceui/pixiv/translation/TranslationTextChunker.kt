@@ -17,7 +17,8 @@ internal object TranslationTextChunker {
             val end = if (hardEnd == text.length) {
                 hardEnd
             } else {
-                findBoundary(text, start, hardEnd)
+                avoidSplittingMarker(text, start, hardEnd)
+                    ?: findBoundary(text, start, avoidSplittingSurrogatePair(text, start, hardEnd))
             }
 
             chunks += text.substring(start, end)
@@ -27,6 +28,25 @@ internal object TranslationTextChunker {
     }
 
     fun merge(chunks: List<String>): String = chunks.joinToString(separator = "")
+
+    private fun avoidSplittingMarker(text: String, start: Int, hardEnd: Int): Int? {
+        val lastOpen = text.lastIndexOf('[', hardEnd - 1)
+        val lastClose = text.lastIndexOf(']', hardEnd - 1)
+        if (lastOpen < start || lastOpen < lastClose) return null
+
+        val markerEnd = text.indexOf(']', hardEnd)
+        if (markerEnd == -1) return null
+        return if (lastOpen > start) lastOpen else markerEnd + 1
+    }
+
+    private fun avoidSplittingSurrogatePair(text: String, start: Int, hardEnd: Int): Int {
+        if (hardEnd <= start || hardEnd >= text.length) return hardEnd
+        return if (text[hardEnd - 1].isHighSurrogate() && text[hardEnd].isLowSurrogate()) {
+            hardEnd - 1
+        } else {
+            hardEnd
+        }
+    }
 
     private fun findBoundary(text: String, start: Int, hardEnd: Int): Int {
         val searchStart = (hardEnd - 200).coerceAtLeast(start)

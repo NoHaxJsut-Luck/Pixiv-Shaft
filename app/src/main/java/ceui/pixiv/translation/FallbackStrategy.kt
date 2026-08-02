@@ -58,17 +58,14 @@ class FallbackStrategy {
             "无法提供",
             "无法继续提供",
             "无法为您提供",
-            "相关法规",
             "不适合进行翻译",
             "不适合翻译",
-            "涉及成人",
-            "违反",
-            "政策",
-            "无法完成"
+            "不能协助翻译",
+            "无法完成该翻译"
         )
 
         val lowerContent = content.lowercase()
-        return blockedKeywords.any { lowerContent.contains(it.lowercase()) }
+        return content.length < 500 && blockedKeywords.any { lowerContent.contains(it.lowercase()) }
     }
 
     /**
@@ -197,7 +194,7 @@ class FallbackStrategy {
                 RetryConfig(
                     shouldRetry = true,
                     useAlternativePrompt = true,
-                    temperature = 0.7, // 提高temperature增加创造性
+                    temperature = 0.25,
                     delayMs = 1000
                 )
             }
@@ -206,7 +203,7 @@ class FallbackStrategy {
                     shouldRetry = true,
                     splitIntoSmallerChunks = true,
                     maxChunkSize = 480,
-                    temperature = 0.72,
+                    temperature = 0.2,
                     delayMs = 900
                 )
             }
@@ -214,7 +211,7 @@ class FallbackStrategy {
                 RetryConfig(
                     shouldRetry = true,
                     useAlternativePrompt = retryCount >= 2,
-                    temperature = 0.78,
+                    temperature = 0.2,
                     delayMs = 1400L
                 )
             }

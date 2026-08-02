@@ -640,4 +640,26 @@
   <string name="unfollow">UnFollow</string>
   <string name="core_string_novel_marker">Markers</string>
   <string name="string_font_size">Font size</string>
+  <string name="translation_cancel">Cancel translation</string>
+  <string name="translation_cancelled">Translation cancelled. Completed chunks will resume next time.</string>
+  <string name="translation_show_original">Show original</string>
+  <string name="translation_show_result">Show translation</string>
+  <string name="translation_preview">%1$s\n%2$s</string>
+  <string name="translation_auth_failed">The API key is invalid or cannot access this model</string>
+  <string name="translation_rate_limited">Too many requests. Try again later.</string>
+  <string name="translation_api_request_failed">Translation request rejected (HTTP %1$d)</string>
+  <string name="translation_service_unavailable">Translation service is temporarily unavailable</string>
+  <string name="translation_output_invalid">The translation was incomplete or damaged novel markers</string>
+  <string name="translation_model_unavailable">Model %1$s is unavailable for this API key</string>
+  <string name="translation_model_title">Translation model</string>
+  <string name="translation_model_summary">xAI model used for novel translation</string>
+  <string name="translation_model_invalid">Invalid model name</string>
+  <string name="translation_test_connection">Test translation settings</string>
+  <string name="translation_test_connection_summary">Check the API key and model</string>
+  <string name="translation_test_success">The API key and model are available</string>
+  <string name="translation_api_key_clear">Clear</string>
+  <string name="translation_api_key_cleared">API key cleared</string>
+  <string name="translation_cache_clear">Clear translation cache</string>
+  <string name="translation_cache_clear_summary">Delete cached translations and resume data</string>
+  <string name="translation_cache_cleared">Translation cache cleared</string>
 </resources>
