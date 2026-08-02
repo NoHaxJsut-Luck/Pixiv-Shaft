@@ -6,6 +6,8 @@ class TranslationApiException(
     val statusCode: Int,
     val retryAfterMs: Long? = null,
     val requestId: String? = null,
+    val contentType: String? = null,
+    val responseBody: String? = null,
 ) : IOException("Translation API request failed with HTTP $statusCode") {
     val isAuthenticationError: Boolean
         get() = statusCode == 401 || statusCode == 403

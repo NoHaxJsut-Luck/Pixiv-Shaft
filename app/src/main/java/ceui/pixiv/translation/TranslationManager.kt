@@ -29,6 +29,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
+import java.util.Date
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -75,6 +76,11 @@ class TranslationManager private constructor() {
             .build()
     }
 
+    private data class ApiCompletion(
+        val content: String,
+        val diagnostics: TranslationResponseDiagnostics,
+    )
+
     suspend fun translate(
         text: String,
         apiKey: String,
@@ -100,6 +106,17 @@ class TranslationManager private constructor() {
         val chunks = TranslationTextChunker.split(text, CHUNK_MAX_CHARS)
         if (chunks.isEmpty()) return text
         val conversationId = UUID.randomUUID().toString()
+        val sessionDiagnostics = TranslationSessionDiagnostics(
+            conversationId = conversationId,
+            promptVersion = PROMPT_VERSION,
+            promptConfigSource = TranslationConfig.getInstance().getPromptSource(),
+            topLevelChunkMaxChars = CHUNK_MAX_CHARS,
+            parallelChunkCap = PARALLEL_CHUNK_CAP,
+            globalRequestCap = GLOBAL_REQUEST_CAP,
+            chunkAttemptCap = CHUNK_ATTEMPT_CAP,
+            maxSplitDepth = MAX_SPLIT_DEPTH,
+            priorityProcessing = priorityProcessing,
+        )
 
         val cache = context?.applicationContext?.let { appContext ->
             withContext(Dispatchers.IO) {
@@ -121,6 +138,9 @@ class TranslationManager private constructor() {
         val completedCount = AtomicInteger(initiallyCompleted)
         val successfulCount = AtomicInteger(initiallyCompleted)
         val failures = ConcurrentLinkedQueue<TranslationFailureRecord>()
+        val diagnosticSequence = AtomicLong(0L)
+        val attemptDiagnostics = ConcurrentLinkedQueue<TranslationAttemptRecord>()
+        val retryDiagnostics = ConcurrentLinkedQueue<TranslationRetryDecisionRecord>()
         val processedSourceChars = AtomicInteger(
             chunks.indices.sumOf { index -> if (results[index] != null) chunks[index].length else 0 },
         )
@@ -199,15 +219,39 @@ class TranslationManager private constructor() {
                                     to = to,
                                     model = model,
                                     priorityProcessing = priorityProcessing,
+                                    splitPath = (index + 1).toString(),
                                     onRetry = ::publishRetry,
                                     onPartial = { partial ->
                                         publishProgress(partial)
+                                    },
+                                    onAttemptDiagnostic = { record ->
+                                        attemptDiagnostics.add(
+                                            record.copy(sequence = diagnosticSequence.incrementAndGet()),
+                                        )
+                                    },
+                                    onRetryDiagnostic = { record ->
+                                        retryDiagnostics.add(
+                                            record.copy(sequence = diagnosticSequence.incrementAndGet()),
+                                        )
                                     },
                                 )
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (error: IOException) {
-                                failures.add(createFailureRecord(index, chunks.size, chunk, error))
+                                failures.add(
+                                    createFailureRecord(
+                                        chunkIndex = index,
+                                        totalChunks = chunks.size,
+                                        topLevelChunk = chunk,
+                                        error = error,
+                                        attempts = attemptDiagnostics.filter {
+                                            it.topLevelChunkIndex == index
+                                        },
+                                        retryDecisions = retryDiagnostics.filter {
+                                            it.topLevelChunkIndex == index
+                                        },
+                                    ),
+                                )
                                 if (error is TranslationApiException && !error.isRetryable) {
                                     throw error
                                 }
@@ -253,6 +297,7 @@ class TranslationManager private constructor() {
                         to = to,
                         totalSourceChars = totalSourceChars,
                         totalChunks = chunks.size,
+                        session = sessionDiagnostics,
                         failures = failures.toList(),
                     )
                 }
@@ -274,6 +319,7 @@ class TranslationManager private constructor() {
                     to = to,
                     totalSourceChars = totalSourceChars,
                     totalChunks = chunks.size,
+                    session = sessionDiagnostics,
                     failures = failureSnapshot,
                 )
             }
@@ -370,9 +416,12 @@ class TranslationManager private constructor() {
         model: String,
         priorityProcessing: Boolean,
         splitDepth: Int = 0,
+        splitPath: String,
         initialConfig: FallbackStrategy.RetryConfig? = null,
         onRetry: suspend (TranslationRetryEvent) -> Unit,
         onPartial: suspend (String) -> Unit,
+        onAttemptDiagnostic: (TranslationAttemptRecord) -> Unit,
+        onRetryDiagnostic: (TranslationRetryDecisionRecord) -> Unit,
     ): String {
         var attempt = 0
         var attemptConfig = initialConfig
@@ -396,6 +445,12 @@ class TranslationManager private constructor() {
                     retry = attempt,
                     retryConfig = attemptConfig,
                     onPartial = onPartial,
+                    chunkIndex = chunkIndex,
+                    totalChunks = totalChunks,
+                    splitDepth = splitDepth,
+                    splitPath = splitPath,
+                    maxAttempts = maxAttempts,
+                    onAttemptDiagnostic = onAttemptDiagnostic,
                 )
 
                 return result
@@ -430,6 +485,26 @@ class TranslationManager private constructor() {
             }
 
             if (attempt + 1 >= maxAttempts) {
+                onRetryDiagnostic(
+                    TranslationRetryDecisionRecord(
+                        topLevelChunkIndex = chunkIndex,
+                        splitPath = splitPath,
+                        splitDepth = splitDepth,
+                        completedAttempt = attempt + 1,
+                        classifiedError = errorType.name,
+                        consecutiveRefusals = consecutiveRefusals,
+                        action = "stop",
+                        shouldRetry = false,
+                        splitRequested = false,
+                        splitPerformed = false,
+                        currentChunkLength = chunk.length,
+                        requestedMaxChunkSize = null,
+                        nextAlternativePrompt = null,
+                        nextTemperature = null,
+                        baseDelayMs = null,
+                        terminalReason = "attempt cap reached",
+                    ),
+                )
                 throw lastFailure ?: TranslationOutputException("Translation output validation failed")
             }
 
@@ -443,6 +518,26 @@ class TranslationManager private constructor() {
                 else -> fallbackStrategy.handleNetworkError(attempt)
             }
             if (!nextConfig.shouldRetry) {
+                onRetryDiagnostic(
+                    TranslationRetryDecisionRecord(
+                        topLevelChunkIndex = chunkIndex,
+                        splitPath = splitPath,
+                        splitDepth = splitDepth,
+                        completedAttempt = attempt + 1,
+                        classifiedError = errorType.name,
+                        consecutiveRefusals = consecutiveRefusals,
+                        action = "stop",
+                        shouldRetry = false,
+                        splitRequested = nextConfig.splitIntoSmallerChunks,
+                        splitPerformed = false,
+                        currentChunkLength = chunk.length,
+                        requestedMaxChunkSize = nextConfig.maxChunkSize,
+                        nextAlternativePrompt = nextConfig.useAlternativePrompt,
+                        nextTemperature = nextConfig.temperature,
+                        baseDelayMs = nextConfig.delayMs,
+                        terminalReason = "retry strategy declined retry",
+                    ),
+                )
                 throw lastFailure ?: TranslationOutputException("Translation retry was rejected")
             }
 
@@ -457,10 +552,50 @@ class TranslationManager private constructor() {
                     maxSplitDepth = MAX_SPLIT_DEPTH,
                 )
             ) {
+                onRetryDiagnostic(
+                    TranslationRetryDecisionRecord(
+                        topLevelChunkIndex = chunkIndex,
+                        splitPath = splitPath,
+                        splitDepth = splitDepth,
+                        completedAttempt = attempt + 1,
+                        classifiedError = errorType.name,
+                        consecutiveRefusals = consecutiveRefusals,
+                        action = "stop",
+                        shouldRetry = false,
+                        splitRequested = nextConfig.splitIntoSmallerChunks,
+                        splitPerformed = false,
+                        currentChunkLength = chunk.length,
+                        requestedMaxChunkSize = nextConfig.maxChunkSize,
+                        nextAlternativePrompt = nextConfig.useAlternativePrompt,
+                        nextTemperature = nextConfig.temperature,
+                        baseDelayMs = nextConfig.delayMs,
+                        terminalReason = "repeated refusal at maximum split depth",
+                    ),
+                )
                 throw lastFailure ?: TranslationRefusedException(
                     "The model repeatedly refused the smallest retry chunk",
                 )
             }
+            onRetryDiagnostic(
+                TranslationRetryDecisionRecord(
+                    topLevelChunkIndex = chunkIndex,
+                    splitPath = splitPath,
+                    splitDepth = splitDepth,
+                    completedAttempt = attempt + 1,
+                    classifiedError = errorType.name,
+                    consecutiveRefusals = consecutiveRefusals,
+                    action = if (shouldSplit) "split" else "retry same chunk",
+                    shouldRetry = true,
+                    splitRequested = nextConfig.splitIntoSmallerChunks,
+                    splitPerformed = shouldSplit,
+                    currentChunkLength = chunk.length,
+                    requestedMaxChunkSize = nextConfig.maxChunkSize,
+                    nextAlternativePrompt = nextConfig.useAlternativePrompt,
+                    nextTemperature = nextConfig.temperature,
+                    baseDelayMs = max(nextConfig.delayMs, retryAfterMs),
+                    terminalReason = null,
+                ),
+            )
             onRetry(
                 TranslationRetryEvent(
                     chunkIndex = chunkIndex,
@@ -487,9 +622,12 @@ class TranslationManager private constructor() {
                     priorityProcessing = priorityProcessing,
                     maxChunkSize = nextConfig.maxChunkSize,
                     splitDepth = splitDepth + 1,
+                    splitPath = splitPath,
                     initialConfig = nextConfig.copy(splitIntoSmallerChunks = false),
                     onRetry = onRetry,
                     onPartial = onPartial,
+                    onAttemptDiagnostic = onAttemptDiagnostic,
+                    onRetryDiagnostic = onRetryDiagnostic,
                 )
             }
 
@@ -514,9 +652,12 @@ class TranslationManager private constructor() {
         priorityProcessing: Boolean,
         maxChunkSize: Int,
         splitDepth: Int,
+        splitPath: String,
         initialConfig: FallbackStrategy.RetryConfig,
         onRetry: suspend (TranslationRetryEvent) -> Unit,
         onPartial: suspend (String) -> Unit,
+        onAttemptDiagnostic: (TranslationAttemptRecord) -> Unit,
+        onRetryDiagnostic: (TranslationRetryDecisionRecord) -> Unit,
     ): String {
         val subChunks = TranslationTextChunker.split(chunk, maxChunkSize)
         val completed = MutableList<String?>(subChunks.size) { null }
@@ -542,9 +683,12 @@ class TranslationManager private constructor() {
                         model = model,
                         priorityProcessing = priorityProcessing,
                         splitDepth = splitDepth,
+                        splitPath = "$splitPath.${index + 1}",
                         initialConfig = initialConfig,
                         onRetry = onRetry,
                         onPartial = onPartial,
+                        onAttemptDiagnostic = onAttemptDiagnostic,
+                        onRetryDiagnostic = onRetryDiagnostic,
                     )
                     synchronized(completed) { completed[index] = translated }
                 }
@@ -566,6 +710,12 @@ class TranslationManager private constructor() {
         retry: Int,
         retryConfig: FallbackStrategy.RetryConfig?,
         onPartial: suspend (String) -> Unit,
+        chunkIndex: Int,
+        totalChunks: Int,
+        splitDepth: Int,
+        splitPath: String,
+        maxAttempts: Int,
+        onAttemptDiagnostic: (TranslationAttemptRecord) -> Unit,
     ): String {
         val parts = TranslationChunkParts.from(chunk)
         if (parts.coreText.isEmpty()) return chunk
@@ -593,53 +743,141 @@ class TranslationManager private constructor() {
             )
         }
 
+        val temperature = retryConfig?.temperature ?: if (retry == 0) 0.15 else 0.1
+        val reasoningEffort = reasoningEffortForModel(model)
+        val startedAtUtc = diagnosticUtcTimestamp()
+        val startedAtNs = System.nanoTime()
+        var completion: ApiCompletion? = null
+        var rawResult: String? = null
+        var normalizedResult: String? = null
+        var validationClassification: FallbackStrategy.ErrorType? = null
+        var attemptFailure: Throwable? = null
+
         val requestBody = buildRequestBody(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             model = model,
-            temperature = retryConfig?.temperature ?: if (retry == 0) 0.15 else 0.1,
+            temperature = temperature,
             priorityProcessing = priorityProcessing,
         )
         val request = buildRequest(apiKey, requestBody, conversationId)
-        val rawResult = try {
-            requestSemaphore.withPermit {
-                client.newCall(request).executeAsync().use { response ->
-                    if (!response.isSuccessful) throw createApiException(response)
-                    if (response.body?.contentType()?.toString()?.contains("text/event-stream") == true) {
-                        handleStreamingResponse(response) { partial ->
-                            val restoredPartial = protector.restorePartial(normalizePartialOutput(partial))
-                            onPartial(parts.restore(restoredPartial))
+        try {
+            try {
+                completion = requestSemaphore.withPermit {
+                    client.newCall(request).executeAsync().use { response ->
+                        if (!response.isSuccessful) throw createApiException(response)
+                        if (response.body?.contentType()?.toString()?.contains("text/event-stream") == true) {
+                            handleStreamingResponse(response) { partial ->
+                                val restoredPartial = protector.restorePartial(normalizePartialOutput(partial))
+                                onPartial(parts.restore(restoredPartial))
+                            }
+                        } else {
+                            handleJsonResponse(response)
                         }
-                    } else {
-                        handleJsonResponse(response)
                     }
                 }
+                val response = requireNotNull(completion)
+                rawResult = response.content
+                if (response.content.isEmpty() && response.diagnostics.sseDataEvents != null) {
+                    throw IOException("Empty streaming response")
+                }
+                if (response.diagnostics.finishReason != null &&
+                    response.diagnostics.finishReason != "stop"
+                ) {
+                    throw TranslationOutputException(
+                        message = "The model stopped with reason: ${response.diagnostics.finishReason}",
+                        modelOutput = response.content,
+                    )
+                }
+            } catch (error: TranslationOutputException) {
+                if (error.sourceChunk != null) throw error
+                throw TranslationOutputException(
+                    message = error.message ?: "The model returned incomplete output",
+                    sourceChunk = chunk,
+                    modelOutput = error.modelOutput,
+                    cause = error,
+                )
             }
-        } catch (error: TranslationOutputException) {
-            if (error.sourceChunk != null) throw error
-            throw TranslationOutputException(
-                message = error.message ?: "The model returned incomplete output",
-                sourceChunk = chunk,
-                modelOutput = error.modelOutput,
-                cause = error,
-            )
-        }
 
-        val normalized = normalizeModelOutput(rawResult)
-        // Validate before restoring markers. A refusal omits all placeholders and must be
-        // handled by the blocked-content strategy, not misreported as marker corruption.
-        fallbackStrategy.requireValidOutput(chunk, normalized)
-        val restored = try {
-            protector.restore(normalized)
-        } catch (error: TranslationMarkerException) {
-            throw TranslationMarkerException(
-                message = error.message ?: "A protected Pixiv marker was changed by the model",
-                sourceChunk = chunk,
-                modelOutput = normalized,
-                cause = error,
-            )
+            val normalized = normalizeModelOutput(requireNotNull(rawResult))
+            normalizedResult = normalized
+            validationClassification = fallbackStrategy.classifyOutput(chunk, normalized)
+            // Validate before restoring markers. A refusal omits all placeholders and must be
+            // handled by the blocked-content strategy, not misreported as marker corruption.
+            fallbackStrategy.requireValidOutput(chunk, normalized)
+            val restored = try {
+                protector.restore(normalized)
+            } catch (error: TranslationMarkerException) {
+                throw TranslationMarkerException(
+                    message = error.message ?: "A protected Pixiv marker was changed by the model",
+                    sourceChunk = chunk,
+                    modelOutput = normalized,
+                    cause = error,
+                )
+            }
+            return parts.restore(restored)
+        } catch (error: Throwable) {
+            attemptFailure = error
+            throw error
+        } finally {
+            val responseDiagnostics = completion?.diagnostics
+                ?: (attemptFailure as? TranslationApiException)?.let { apiError ->
+                    TranslationResponseDiagnostics(
+                        httpStatus = apiError.statusCode,
+                        contentType = apiError.contentType,
+                        requestId = apiError.requestId,
+                        completionId = null,
+                        responseModel = null,
+                        systemFingerprint = null,
+                        finishReason = null,
+                        promptTokens = null,
+                        completionTokens = null,
+                        totalTokens = null,
+                        cachedPromptTokens = null,
+                        reasoningTokens = null,
+                        sseDataEvents = null,
+                        malformedSseEvents = null,
+                        apiErrorBody = apiError.responseBody,
+                    )
+                }
+            runCatching {
+                onAttemptDiagnostic(
+                    TranslationAttemptRecord(
+                        topLevelChunkIndex = chunkIndex,
+                        totalTopLevelChunks = totalChunks,
+                        splitPath = splitPath,
+                        splitDepth = splitDepth,
+                        attempt = retry + 1,
+                        maxAttempts = maxAttempts,
+                        startedAtUtc = startedAtUtc,
+                        durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNs),
+                        sourceText = chunk,
+                        contextBeforeLength = contextBefore.length,
+                        contextAfterLength = contextAfter.length,
+                        promptMode = if (retryConfig?.useAlternativePrompt == true) {
+                            "alternative"
+                        } else {
+                            "configured"
+                        },
+                        systemPrompt = systemPrompt,
+                        userPrompt = userPrompt,
+                        model = model,
+                        reasoningEffort = reasoningEffort,
+                        temperature = temperature,
+                        priorityProcessing = priorityProcessing,
+                        response = responseDiagnostics,
+                        rawModelOutput = rawResult,
+                        normalizedModelOutput = normalizedResult,
+                        validationClassification = validationClassification?.name,
+                        sourceEqualsNormalizedOutput = normalizedResult?.let {
+                            chunk.trim() == it.trim()
+                        },
+                        errorType = attemptFailure?.javaClass?.simpleName,
+                        errorMessage = attemptFailure?.message,
+                    ),
+                )
+            }.onFailure { Timber.w(it, "Unable to collect translation attempt diagnostics") }
         }
-        return parts.restore(restored)
     }
 
     private fun createFailureRecord(
@@ -647,6 +885,8 @@ class TranslationManager private constructor() {
         totalChunks: Int,
         topLevelChunk: String,
         error: IOException,
+        attempts: List<TranslationAttemptRecord>,
+        retryDecisions: List<TranslationRetryDecisionRecord>,
     ): TranslationFailureRecord {
         val contentError = error as? TranslationContentException
         return TranslationFailureRecord(
@@ -655,6 +895,8 @@ class TranslationManager private constructor() {
             sourceChunk = contentError?.sourceChunk ?: topLevelChunk,
             modelOutput = contentError?.modelOutput,
             error = error,
+            attempts = attempts,
+            retryDecisions = retryDecisions,
         )
     }
 
@@ -718,12 +960,22 @@ class TranslationManager private constructor() {
             if (priorityProcessing) {
                 addProperty("service_tier", "priority")
             }
-            if (model == "grok-4.3" || model.startsWith("grok-4.3-")) {
-                addProperty("reasoning_effort", "none")
+            reasoningEffortForModel(model)?.let { effort ->
+                addProperty("reasoning_effort", effort)
             }
             add("messages", messages)
         }.toString()
     }
+
+    private fun reasoningEffortForModel(model: String): String? =
+        if (model == "grok-4.3" || model.startsWith("grok-4.3-")) "none" else null
+
+    private fun diagnosticUtcTimestamp(): String = SimpleDateFormat(
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        Locale.US,
+    ).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(Date())
 
     private fun buildRequest(apiKey: String, requestBody: String, conversationId: String): Request {
         val body = requestBody.toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -739,10 +991,20 @@ class TranslationManager private constructor() {
     private suspend fun handleStreamingResponse(
         response: Response,
         onPartial: suspend (String) -> Unit,
-    ): String {
+    ): ApiCompletion {
         val source = response.body?.source() ?: throw IOException("Empty response body")
         val content = StringBuilder()
         var finishReason: String? = null
+        var completionId: String? = null
+        var responseModel: String? = null
+        var systemFingerprint: String? = null
+        var promptTokens: Int? = null
+        var completionTokens: Int? = null
+        var totalTokens: Int? = null
+        var cachedPromptTokens: Int? = null
+        var reasoningTokens: Int? = null
+        var sseDataEvents = 0
+        var malformedSseEvents = 0
         var lastPreviewNs = 0L
 
         while (!source.exhausted()) {
@@ -752,9 +1014,25 @@ class TranslationManager private constructor() {
             val data = line.removePrefix("data:").trim()
             if (data == "[DONE]") break
             if (data.isEmpty()) continue
+            sseDataEvents++
 
             val root = runCatching { JsonParser.parseString(data).asJsonObject }.getOrNull()
-                ?: continue
+            if (root == null) {
+                malformedSseEvents++
+                continue
+            }
+            completionId = root.stringOrNull("id") ?: completionId
+            responseModel = root.stringOrNull("model") ?: responseModel
+            systemFingerprint = root.stringOrNull("system_fingerprint") ?: systemFingerprint
+            root.getAsJsonObject("usage")?.let { usage ->
+                promptTokens = usage.intOrNull("prompt_tokens") ?: promptTokens
+                completionTokens = usage.intOrNull("completion_tokens") ?: completionTokens
+                totalTokens = usage.intOrNull("total_tokens") ?: totalTokens
+                cachedPromptTokens = usage.getAsJsonObject("prompt_tokens_details")
+                    ?.intOrNull("cached_tokens") ?: cachedPromptTokens
+                reasoningTokens = usage.getAsJsonObject("completion_tokens_details")
+                    ?.intOrNull("reasoning_tokens") ?: reasoningTokens
+            }
             val choice = root.getAsJsonArray("choices")?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject
                 ?: continue
             choice.get("finish_reason")?.takeIf { !it.isJsonNull }?.let { finishReason = it.asString }
@@ -771,16 +1049,28 @@ class TranslationManager private constructor() {
         }
 
         if (content.isNotEmpty()) onPartial(content.toString())
-        if (finishReason != null && finishReason != "stop") {
-            throw TranslationOutputException(
-                message = "The model stopped with reason: $finishReason",
-                modelOutput = content.toString(),
-            )
-        }
-        return content.toString().ifEmpty { throw IOException("Empty streaming response") }
+        return ApiCompletion(
+            content = content.toString(),
+            diagnostics = TranslationResponseDiagnostics(
+                httpStatus = response.code,
+                contentType = response.body?.contentType()?.toString(),
+                requestId = response.header("x-request-id"),
+                completionId = completionId,
+                responseModel = responseModel,
+                systemFingerprint = systemFingerprint,
+                finishReason = finishReason,
+                promptTokens = promptTokens,
+                completionTokens = completionTokens,
+                totalTokens = totalTokens,
+                cachedPromptTokens = cachedPromptTokens,
+                reasoningTokens = reasoningTokens,
+                sseDataEvents = sseDataEvents,
+                malformedSseEvents = malformedSseEvents,
+            ),
+        )
     }
 
-    private fun handleJsonResponse(response: Response): String {
+    private fun handleJsonResponse(response: Response): ApiCompletion {
         val responseBody = response.body?.string() ?: throw IOException("Empty response body")
         val root = JsonParser.parseString(responseBody).asJsonObject
         val choice = root.getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
@@ -790,13 +1080,28 @@ class TranslationManager private constructor() {
             ?: throw IOException("Invalid response structure: missing message")
         val content = extractMessageContentOrNull(message)
             ?: throw IOException("Invalid response structure: missing content")
-        if (finishReason != null && finishReason != "stop") {
-            throw TranslationOutputException(
-                message = "The model stopped with reason: $finishReason",
-                modelOutput = content,
-            )
-        }
-        return content
+        val usage = root.getAsJsonObject("usage")
+        return ApiCompletion(
+            content = content,
+            diagnostics = TranslationResponseDiagnostics(
+                httpStatus = response.code,
+                contentType = response.body?.contentType()?.toString(),
+                requestId = response.header("x-request-id"),
+                completionId = root.stringOrNull("id"),
+                responseModel = root.stringOrNull("model"),
+                systemFingerprint = root.stringOrNull("system_fingerprint"),
+                finishReason = finishReason,
+                promptTokens = usage?.intOrNull("prompt_tokens"),
+                completionTokens = usage?.intOrNull("completion_tokens"),
+                totalTokens = usage?.intOrNull("total_tokens"),
+                cachedPromptTokens = usage?.getAsJsonObject("prompt_tokens_details")
+                    ?.intOrNull("cached_tokens"),
+                reasoningTokens = usage?.getAsJsonObject("completion_tokens_details")
+                    ?.intOrNull("reasoning_tokens"),
+                sseDataEvents = null,
+                malformedSseEvents = null,
+            ),
+        )
     }
 
     private fun extractMessageContentOrNull(message: JsonObject): String? {
@@ -819,14 +1124,25 @@ class TranslationManager private constructor() {
     }
 
     private fun createApiException(response: Response): TranslationApiException {
-        response.body?.close()
+        val contentType = response.body?.contentType()?.toString()
+        val responseBody = runCatching { response.body?.string() }.getOrNull()
         val retryAfterMs = parseRetryAfter(response.header("Retry-After"))
         return TranslationApiException(
             statusCode = response.code,
             retryAfterMs = retryAfterMs,
             requestId = response.header("x-request-id"),
+            contentType = contentType,
+            responseBody = responseBody,
         )
     }
+
+    private fun JsonObject.stringOrNull(name: String): String? = get(name)
+        ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }
+        ?.asString
+
+    private fun JsonObject.intOrNull(name: String): Int? = get(name)
+        ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }
+        ?.asInt
 
     internal fun parseRetryAfter(value: String?, nowMs: Long = System.currentTimeMillis()): Long? {
         val normalized = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null

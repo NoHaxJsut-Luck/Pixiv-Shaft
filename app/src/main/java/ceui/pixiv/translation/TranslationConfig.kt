@@ -28,6 +28,7 @@ class TranslationConfig private constructor() {
 
     private val config = mutableMapOf<String, String>()
     private var isLoaded = false
+    private var promptSource = "built-in defaults"
 
     @Synchronized
     fun loadConfig(context: Context) {
@@ -40,8 +41,10 @@ class TranslationConfig private constructor() {
             ).firstOrNull { it.exists() }
             if (configFile != null) {
                 loadFromFile(configFile)
+                promptSource = "custom file: ${configFile.name}"
             } else {
                 Log.d(TAG, "Custom translation prompt not found; using defaults")
+                promptSource = "built-in defaults"
             }
             isLoaded = true
         } catch (e: Exception) {
@@ -88,6 +91,8 @@ class TranslationConfig private constructor() {
     }
 
     fun isConfigLoaded(): Boolean = isLoaded
+
+    fun getPromptSource(): String = promptSource
 
     fun replaceVariables(template: String, variables: Map<String, String>): String {
         var result = template
