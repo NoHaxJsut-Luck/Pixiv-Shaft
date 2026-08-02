@@ -6,11 +6,13 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import ceui.lisa.R;
 import ceui.pixiv.translation.TranslationManager;
+import ceui.pixiv.translation.TranslationPartialResultEvent;
 import ceui.pixiv.translation.TranslationProgressListener;
 import ceui.pixiv.translation.TranslationRetryEvent;
 
@@ -74,6 +76,23 @@ public class TranslationHelper {
                             @Override
                             public void onRetry(TranslationRetryEvent event) {
                                 postToMain(() -> updateRetryProgress(event));
+                            }
+
+                            @Override
+                            public void onPartialResult(TranslationPartialResultEvent event) {
+                                postToMain(() -> Toast.makeText(
+                                        appContext,
+                                        appContext.getString(
+                                                R.string.translation_partial_complete,
+                                                event.getFailedChunks(),
+                                                event.getTotalChunks(),
+                                                event.getLogLocation() != null
+                                                        ? event.getLogLocation()
+                                                        : appContext.getString(
+                                                                R.string.translation_log_save_failed)
+                                        ),
+                                        Toast.LENGTH_LONG
+                                ).show());
                             }
                         }
                 );

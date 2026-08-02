@@ -620,6 +620,11 @@
   <string name="translation_output_invalid">Перевод неполный или не прошёл проверку качества</string>
   <string name="translation_marker_invalid">Модель изменила маркеры новеллы, и их не удалось восстановить после повторных попыток</string>
   <string name="translation_model_refused">Модель отказалась переводить это содержимое. Выберите поддерживающую его модель и повторите попытку; готовые фрагменты сохранятся.</string>
+  <string name="translation_failed_chunk_header">【Фрагмент %1$d/%2$d не переведён; ниже сохранён оригинал】</string>
+  <string name="translation_failed_chunk_footer">【Конец непереведённого фрагмента】</string>
+  <string name="translation_partial_complete">Показан частичный перевод; %1$d/%2$d фрагментов не переведены и сохранены в оригинале.\nДиагностический журнал: %3$s</string>
+  <string name="translation_log_saved">Диагностический журнал сохранён: %1$s</string>
+  <string name="translation_log_save_failed">Не удалось сохранить журнал</string>
   <string name="translation_model_unavailable">Модель %1$s недоступна для этого ключа API</string>
   <string name="translation_model_title">Модель перевода</string>
   <string name="translation_model_summary">Модель xAI для перевода новелл</string>

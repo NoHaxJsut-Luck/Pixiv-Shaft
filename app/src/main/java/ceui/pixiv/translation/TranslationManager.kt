@@ -29,6 +29,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -90,6 +91,7 @@ class TranslationManager private constructor() {
             totalSourceChars: Int,
         ) -> Unit = { _, _, _, _ -> },
         onRetry: (TranslationRetryEvent) -> Unit = {},
+        onPartialResult: (TranslationPartialResultEvent) -> Unit = {},
     ): String {
         require(apiKey.isNotBlank()) { "API key must not be blank" }
         context?.let { TranslationConfig.getInstance().loadConfig(it) }
@@ -117,6 +119,8 @@ class TranslationManager private constructor() {
         val results = cachedResults.toMutableList()
         val initiallyCompleted = results.count { it != null }
         val completedCount = AtomicInteger(initiallyCompleted)
+        val successfulCount = AtomicInteger(initiallyCompleted)
+        val failures = ConcurrentLinkedQueue<TranslationFailureRecord>()
         val processedSourceChars = AtomicInteger(
             chunks.indices.sumOf { index -> if (results[index] != null) chunks[index].length else 0 },
         )
@@ -156,6 +160,13 @@ class TranslationManager private constructor() {
             }
         }
 
+        suspend fun publishPartialResult(event: TranslationPartialResultEvent) {
+            withContext(Dispatchers.Main.immediate) {
+                runCatching { onPartialResult(event) }
+                    .onFailure { Timber.w(it, "Translation partial-result callback failed") }
+            }
+        }
+
         if (initiallyCompleted > 0) {
             publishCountProgress()
             results.filterNotNull().lastOrNull()?.let { publishProgress(it, force = true) }
@@ -165,49 +176,117 @@ class TranslationManager private constructor() {
         if (missingIndices.isNotEmpty()) {
             val parallelism = minOf(PARALLEL_CHUNK_CAP, missingIndices.size)
             val dispatcher = Dispatchers.IO.limitedParallelism(max(1, parallelism))
-            coroutineScope {
-                missingIndices.map { index ->
-                    async(dispatcher) {
-                        val chunk = chunks[index]
-                        val translated = processChunkWithRetry(
-                            chunk = chunk,
-                            chunkIndex = index,
-                            totalChunks = chunks.size,
-                            contextBefore = chunks.getOrNull(index - 1)
-                                ?.takeLast(CONTEXT_BEFORE_CHARS)
-                                .orEmpty(),
-                            contextAfter = chunks.getOrNull(index + 1)
-                                ?.take(CONTEXT_AFTER_CHARS)
-                                .orEmpty(),
-                            conversationId = conversationId,
-                            apiKey = apiKey,
-                            maxAttempts = CHUNK_ATTEMPT_CAP,
-                            from = from,
-                            to = to,
-                            model = model,
-                            priorityProcessing = priorityProcessing,
-                            onRetry = ::publishRetry,
-                            onPartial = { partial ->
-                                publishProgress(partial)
-                            },
-                        )
+            try {
+                coroutineScope {
+                    missingIndices.map { index ->
+                        async(dispatcher) {
+                            val chunk = chunks[index]
+                            val translated = try {
+                                processChunkWithRetry(
+                                    chunk = chunk,
+                                    chunkIndex = index,
+                                    totalChunks = chunks.size,
+                                    contextBefore = chunks.getOrNull(index - 1)
+                                        ?.takeLast(CONTEXT_BEFORE_CHARS)
+                                        .orEmpty(),
+                                    contextAfter = chunks.getOrNull(index + 1)
+                                        ?.take(CONTEXT_AFTER_CHARS)
+                                        .orEmpty(),
+                                    conversationId = conversationId,
+                                    apiKey = apiKey,
+                                    maxAttempts = CHUNK_ATTEMPT_CAP,
+                                    from = from,
+                                    to = to,
+                                    model = model,
+                                    priorityProcessing = priorityProcessing,
+                                    onRetry = ::publishRetry,
+                                    onPartial = { partial ->
+                                        publishProgress(partial)
+                                    },
+                                )
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: IOException) {
+                                failures.add(createFailureRecord(index, chunks.size, chunk, error))
+                                if (error is TranslationApiException && !error.isRetryable) {
+                                    throw error
+                                }
+                                val fallback = buildFailedChunkFallback(
+                                    context = context,
+                                    chunkIndex = index,
+                                    totalChunks = chunks.size,
+                                    sourceChunk = chunk,
+                                )
+                                synchronized(stateLock) {
+                                    results[index] = fallback
+                                }
+                                processedSourceChars.addAndGet(chunk.length)
+                                completedCount.incrementAndGet()
+                                publishCountProgress()
+                                publishProgress(
+                                    fallback,
+                                    force = completedCount.get() == chunks.size,
+                                )
+                                return@async
+                            }
 
-                        synchronized(stateLock) {
-                            results[index] = translated
+                            synchronized(stateLock) {
+                                results[index] = translated
+                            }
+                            cache?.saveChunk(index, translated)
+                            successfulCount.incrementAndGet()
+                            processedSourceChars.addAndGet(chunk.length)
+                            completedCount.incrementAndGet()
+                            publishCountProgress()
+                            publishProgress(translated, force = completedCount.get() == chunks.size)
                         }
-                        cache?.saveChunk(index, translated)
-                        processedSourceChars.addAndGet(chunk.length)
-                        completedCount.incrementAndGet()
-                        publishCountProgress()
-                        publishProgress(translated, force = completedCount.get() == chunks.size)
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: IOException) {
+                val logLocation = context?.applicationContext?.let { appContext ->
+                    TranslationFailureLogger.save(
+                        context = appContext,
+                        model = model,
+                        from = from,
+                        to = to,
+                        totalSourceChars = totalSourceChars,
+                        totalChunks = chunks.size,
+                        failures = failures.toList(),
+                    )
+                }
+                throw TranslationLoggedException(error, logLocation)
             }
         }
 
         val completedResults = synchronized(stateLock) { results.toList() }
         if (completedResults.any { it == null }) {
             throw TranslationOutputException("Translation ended with incomplete chunks")
+        }
+        val failureSnapshot = failures.toList()
+        if (failureSnapshot.isNotEmpty()) {
+            val logLocation = context?.applicationContext?.let { appContext ->
+                TranslationFailureLogger.save(
+                    context = appContext,
+                    model = model,
+                    from = from,
+                    to = to,
+                    totalSourceChars = totalSourceChars,
+                    totalChunks = chunks.size,
+                    failures = failureSnapshot,
+                )
+            }
+            if (successfulCount.get() == 0) {
+                throw TranslationLoggedException(failureSnapshot.first().error, logLocation)
+            }
+            publishPartialResult(
+                TranslationPartialResultEvent(
+                    failedChunks = failureSnapshot.size,
+                    totalChunks = chunks.size,
+                    logLocation = logLocation,
+                ),
+            )
         }
         return TranslationTextChunker.merge(completedResults.filterNotNull())
     }
@@ -272,6 +351,7 @@ class TranslationManager private constructor() {
                     onProgressUpdate.onProgress(completed, total, processedChars, totalChars)
                 },
                 onRetry = { event -> onProgressUpdate.onRetry(event) },
+                onPartialResult = { event -> onProgressUpdate.onPartialResult(event) },
             )
         }
     }
@@ -521,26 +601,78 @@ class TranslationManager private constructor() {
             priorityProcessing = priorityProcessing,
         )
         val request = buildRequest(apiKey, requestBody, conversationId)
-        val rawResult = requestSemaphore.withPermit {
-            client.newCall(request).executeAsync().use { response ->
-                if (!response.isSuccessful) throw createApiException(response)
-                if (response.body?.contentType()?.toString()?.contains("text/event-stream") == true) {
-                    handleStreamingResponse(response) { partial ->
-                        val restoredPartial = protector.restorePartial(normalizePartialOutput(partial))
-                        onPartial(parts.restore(restoredPartial))
+        val rawResult = try {
+            requestSemaphore.withPermit {
+                client.newCall(request).executeAsync().use { response ->
+                    if (!response.isSuccessful) throw createApiException(response)
+                    if (response.body?.contentType()?.toString()?.contains("text/event-stream") == true) {
+                        handleStreamingResponse(response) { partial ->
+                            val restoredPartial = protector.restorePartial(normalizePartialOutput(partial))
+                            onPartial(parts.restore(restoredPartial))
+                        }
+                    } else {
+                        handleJsonResponse(response)
                     }
-                } else {
-                    handleJsonResponse(response)
                 }
             }
+        } catch (error: TranslationOutputException) {
+            if (error.sourceChunk != null) throw error
+            throw TranslationOutputException(
+                message = error.message ?: "The model returned incomplete output",
+                sourceChunk = chunk,
+                modelOutput = error.modelOutput,
+                cause = error,
+            )
         }
 
         val normalized = normalizeModelOutput(rawResult)
         // Validate before restoring markers. A refusal omits all placeholders and must be
         // handled by the blocked-content strategy, not misreported as marker corruption.
         fallbackStrategy.requireValidOutput(chunk, normalized)
-        val restored = protector.restore(normalized)
+        val restored = try {
+            protector.restore(normalized)
+        } catch (error: TranslationMarkerException) {
+            throw TranslationMarkerException(
+                message = error.message ?: "A protected Pixiv marker was changed by the model",
+                sourceChunk = chunk,
+                modelOutput = normalized,
+                cause = error,
+            )
+        }
         return parts.restore(restored)
+    }
+
+    private fun createFailureRecord(
+        chunkIndex: Int,
+        totalChunks: Int,
+        topLevelChunk: String,
+        error: IOException,
+    ): TranslationFailureRecord {
+        val contentError = error as? TranslationContentException
+        return TranslationFailureRecord(
+            chunkIndex = chunkIndex,
+            totalChunks = totalChunks,
+            sourceChunk = contentError?.sourceChunk ?: topLevelChunk,
+            modelOutput = contentError?.modelOutput,
+            error = error,
+        )
+    }
+
+    private fun buildFailedChunkFallback(
+        context: Context?,
+        chunkIndex: Int,
+        totalChunks: Int,
+        sourceChunk: String,
+    ): String {
+        val header = context?.getString(
+            ceui.lisa.R.string.translation_failed_chunk_header,
+            chunkIndex + 1,
+            totalChunks,
+        ) ?: "[Translation failed for chunk ${chunkIndex + 1}/$totalChunks; original text follows]"
+        val footer = context?.getString(
+            ceui.lisa.R.string.translation_failed_chunk_footer,
+        ) ?: "[End of untranslated chunk]"
+        return "\n$header\n$sourceChunk\n$footer\n"
     }
 
     internal fun buildContinuityPrompt(contextBefore: String, contextAfter: String): String {
@@ -640,7 +772,10 @@ class TranslationManager private constructor() {
 
         if (content.isNotEmpty()) onPartial(content.toString())
         if (finishReason != null && finishReason != "stop") {
-            throw TranslationOutputException("The model stopped with reason: $finishReason")
+            throw TranslationOutputException(
+                message = "The model stopped with reason: $finishReason",
+                modelOutput = content.toString(),
+            )
         }
         return content.toString().ifEmpty { throw IOException("Empty streaming response") }
     }
@@ -651,13 +786,17 @@ class TranslationManager private constructor() {
         val choice = root.getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
             ?: throw IOException("Invalid response structure: missing choices")
         val finishReason = choice.get("finish_reason")?.takeIf { !it.isJsonNull }?.asString
-        if (finishReason != null && finishReason != "stop") {
-            throw TranslationOutputException("The model stopped with reason: $finishReason")
-        }
         val message = choice.getAsJsonObject("message")
             ?: throw IOException("Invalid response structure: missing message")
-        return extractMessageContentOrNull(message)
+        val content = extractMessageContentOrNull(message)
             ?: throw IOException("Invalid response structure: missing content")
+        if (finishReason != null && finishReason != "stop") {
+            throw TranslationOutputException(
+                message = "The model stopped with reason: $finishReason",
+                modelOutput = content,
+            )
+        }
+        return content
     }
 
     private fun extractMessageContentOrNull(message: JsonObject): String? {

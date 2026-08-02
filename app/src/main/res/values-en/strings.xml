@@ -652,6 +652,11 @@
   <string name="translation_output_invalid">The translation was incomplete or failed quality validation</string>
   <string name="translation_marker_invalid">The model changed novel markers and they could not be restored after retries</string>
   <string name="translation_model_refused">The model refused to translate this content. Try a model that supports it; completed chunks will be kept.</string>
+  <string name="translation_failed_chunk_header">[Failed chunk: %1$d/%2$d; original text preserved below]</string>
+  <string name="translation_failed_chunk_footer">[End of untranslated chunk]</string>
+  <string name="translation_partial_complete">Partial translation shown. Failed chunks: %1$d/%2$d. Original text was retained.\nDiagnostic log: %3$s</string>
+  <string name="translation_log_saved">Diagnostic log saved to: %1$s</string>
+  <string name="translation_log_save_failed">Log could not be saved</string>
   <string name="translation_model_unavailable">Model %1$s is unavailable for this API key</string>
   <string name="translation_model_title">Translation model</string>
   <string name="translation_model_summary">xAI model used for novel translation</string>

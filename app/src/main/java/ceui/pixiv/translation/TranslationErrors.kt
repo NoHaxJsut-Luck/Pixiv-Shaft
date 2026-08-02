@@ -17,11 +17,38 @@ class TranslationApiException(
         get() = isRateLimited || statusCode == 408 || statusCode >= 500
 }
 
-class TranslationOutputException(message: String) : IOException(message)
+open class TranslationContentException(
+    message: String,
+    val sourceChunk: String? = null,
+    val modelOutput: String? = null,
+    cause: Throwable? = null,
+) : IOException(message, cause)
 
-class TranslationMarkerException(message: String) : IOException(message)
+class TranslationOutputException(
+    message: String,
+    sourceChunk: String? = null,
+    modelOutput: String? = null,
+    cause: Throwable? = null,
+) : TranslationContentException(message, sourceChunk, modelOutput, cause)
 
-class TranslationRefusedException(message: String) : IOException(message)
+class TranslationMarkerException(
+    message: String,
+    sourceChunk: String? = null,
+    modelOutput: String? = null,
+    cause: Throwable? = null,
+) : TranslationContentException(message, sourceChunk, modelOutput, cause)
+
+class TranslationRefusedException(
+    message: String,
+    sourceChunk: String? = null,
+    modelOutput: String? = null,
+    cause: Throwable? = null,
+) : TranslationContentException(message, sourceChunk, modelOutput, cause)
+
+class TranslationLoggedException(
+    val originalError: IOException,
+    val logLocation: String?,
+) : IOException(originalError.message, originalError)
 
 class TranslationModelUnavailableException(val model: String) :
     IOException("Translation model is unavailable: $model")

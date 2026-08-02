@@ -19,6 +19,7 @@ import ceui.pixiv.translation.TranslationApiKeyStore
 import ceui.pixiv.translation.TranslationConfig
 import ceui.pixiv.translation.TranslationErrorMessages
 import ceui.pixiv.translation.TranslationManager
+import ceui.pixiv.translation.TranslationPartialResultEvent
 import ceui.pixiv.ui.comments.CommentsFragmentArgs
 import ceui.pixiv.ui.common.FitsSystemWindowFragment
 import ceui.pixiv.ui.common.ListMode
@@ -160,6 +161,7 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
             val loadingText = loadingLayout.findViewById<TextView>(R.id.progress_text)
             var progressLabel = getString(R.string.translation_in_progress)
             var previewLabel = ""
+            var partialResultEvent: TranslationPartialResultEvent? = null
 
             fun renderProgress() {
                 loadingText?.text = if (previewLabel.isEmpty()) {
@@ -219,10 +221,31 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
                         )
                         renderProgress()
                     },
+                    onPartialResult = { event ->
+                        partialResultEvent = event
+                    },
                 )
 
                 textModel.applyTranslation(translatedText)
-                Toast.makeText(requireContext(), R.string.translation_complete, Toast.LENGTH_SHORT).show()
+                val partial = partialResultEvent
+                if (partial == null) {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.translation_complete,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        requireContext(),
+                        getString(
+                            R.string.translation_partial_complete,
+                            partial.failedChunks,
+                            partial.totalChunks,
+                            partial.logLocation ?: getString(R.string.translation_log_save_failed),
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

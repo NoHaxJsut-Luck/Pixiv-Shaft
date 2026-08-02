@@ -58,9 +58,13 @@ class FallbackStrategy {
         when (classifyOutput(source, result)) {
             ErrorType.BLOCKED_CONTENT -> throw TranslationRefusedException(
                 "The model refused to translate this chunk",
+                sourceChunk = source,
+                modelOutput = result,
             )
             ErrorType.FORMAT_ERROR -> throw TranslationOutputException(
                 "The model returned an incomplete or invalid translation",
+                sourceChunk = source,
+                modelOutput = result,
             )
             else -> Unit
         }

@@ -12,4 +12,6 @@ fun interface TranslationProgressListener {
     )
 
     fun onRetry(event: TranslationRetryEvent) = Unit
+
+    fun onPartialResult(event: TranslationPartialResultEvent) = Unit
 }
