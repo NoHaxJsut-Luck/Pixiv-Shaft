@@ -15,7 +15,7 @@ class TranslationMarkerProtectorTest {
         assertEquals(source, protector.restore(protector.protectedText))
     }
 
-    @Test(expected = TranslationOutputException::class)
+    @Test(expected = TranslationMarkerException::class)
     fun rejectsMissingMarkers() {
         val protector = TranslationMarkerProtector.protect("正文[uploadedimage:123]")
 

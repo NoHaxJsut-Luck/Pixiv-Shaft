@@ -61,6 +61,50 @@ class FallbackStrategyTest {
         assertEquals(420, config.maxChunkSize)
     }
 
+    @Test(expected = TranslationRefusedException::class)
+    fun refusalIsRaisedBeforeMarkerRestoration() {
+        strategy.requireValidOutput(
+            "本文[uploadedimage:123]です。".repeat(30),
+            "抱歉，该段落翻译不通过。",
+        )
+    }
+
+    @Test(expected = TranslationOutputException::class)
+    fun invalidTranslationUsesQualityError() {
+        strategy.requireValidOutput(
+            "これは長い小説本文です。".repeat(40),
+            "内容过短。",
+        )
+    }
+
+    @Test
+    fun repeatedRefusalStopsOnlyAtSmallestChunk() {
+        assertTrue(
+            strategy.shouldStopRepeatedRefusal(
+                consecutiveRefusals = 2,
+                chunkLength = 280,
+                splitDepth = 2,
+                maxSplitDepth = 2,
+            ),
+        )
+        assertFalse(
+            strategy.shouldStopRepeatedRefusal(
+                consecutiveRefusals = 2,
+                chunkLength = 420,
+                splitDepth = 2,
+                maxSplitDepth = 2,
+            ),
+        )
+        assertFalse(
+            strategy.shouldStopRepeatedRefusal(
+                consecutiveRefusals = 1,
+                chunkLength = 280,
+                splitDepth = 2,
+                maxSplitDepth = 2,
+            ),
+        )
+    }
+
     @Test
     fun unchangedJapaneseIsRejectedButChineseTranslationPasses() {
         val source = "これはテストです。よろしくお願いします。"

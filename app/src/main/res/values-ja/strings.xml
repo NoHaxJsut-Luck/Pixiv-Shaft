@@ -712,7 +712,9 @@
   <string name="translation_rate_limited">リクエストが多すぎます。しばらくしてから再試行してください。</string>
   <string name="translation_api_request_failed">翻訳リクエストが拒否されました（HTTP %1$d）</string>
   <string name="translation_service_unavailable">翻訳サービスは一時的に利用できません</string>
-  <string name="translation_output_invalid">翻訳が不完全か、小説のマーカーが破損しました</string>
+  <string name="translation_output_invalid">翻訳が不完全か、品質チェックを通過しませんでした</string>
+  <string name="translation_marker_invalid">モデルが小説のマーカーを変更し、再試行後も復元できませんでした</string>
+  <string name="translation_model_refused">モデルがこの内容の翻訳を拒否しました。対応するモデルに変更して再試行してください。完了済みのチャンクは保持されます。</string>
   <string name="translation_model_unavailable">このAPIキーではモデル %1$s を利用できません</string>
   <string name="translation_model_title">翻訳モデル</string>
   <string name="translation_model_summary">小説翻訳に使用するxAIモデル</string>

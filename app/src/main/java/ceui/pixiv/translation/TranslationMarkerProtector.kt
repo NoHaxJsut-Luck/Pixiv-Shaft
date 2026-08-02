@@ -9,7 +9,7 @@ internal class TranslationMarkerProtector private constructor(
         var result = translatedText
         replacements.forEach { (token, marker) ->
             if (result.windowed(token.length).count { it == token } != 1) {
-                throw TranslationOutputException("A protected Pixiv marker was changed by the model")
+                throw TranslationMarkerException("A protected Pixiv marker was changed by the model")
             }
             result = result.replace(token, marker)
         }

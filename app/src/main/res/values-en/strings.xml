@@ -649,7 +649,9 @@
   <string name="translation_rate_limited">Too many requests. Try again later.</string>
   <string name="translation_api_request_failed">Translation request rejected (HTTP %1$d)</string>
   <string name="translation_service_unavailable">Translation service is temporarily unavailable</string>
-  <string name="translation_output_invalid">The translation was incomplete or damaged novel markers</string>
+  <string name="translation_output_invalid">The translation was incomplete or failed quality validation</string>
+  <string name="translation_marker_invalid">The model changed novel markers and they could not be restored after retries</string>
+  <string name="translation_model_refused">The model refused to translate this content. Try a model that supports it; completed chunks will be kept.</string>
   <string name="translation_model_unavailable">Model %1$s is unavailable for this API key</string>
   <string name="translation_model_title">Translation model</string>
   <string name="translation_model_summary">xAI model used for novel translation</string>

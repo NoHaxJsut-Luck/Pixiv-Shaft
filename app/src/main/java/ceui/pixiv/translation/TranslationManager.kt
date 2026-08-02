@@ -296,6 +296,7 @@ class TranslationManager private constructor() {
     ): String {
         var attempt = 0
         var attemptConfig = initialConfig
+        var consecutiveRefusals = 0
 
         while (attempt < maxAttempts) {
             coroutineContext.ensureActive()
@@ -317,11 +318,7 @@ class TranslationManager private constructor() {
                     onPartial = onPartial,
                 )
 
-                fallbackStrategy.classifyOutput(chunk, result)?.also {
-                    lastFailure = TranslationOutputException(
-                        "The model returned an incomplete or refused translation",
-                    )
-                } ?: return result
+                return result
             } catch (e: CancellationException) {
                 throw e
             } catch (e: TranslationApiException) {
@@ -329,6 +326,12 @@ class TranslationManager private constructor() {
                 lastFailure = e
                 retryAfterMs = e.retryAfterMs ?: 0L
                 FallbackStrategy.ErrorType.NETWORK_ERROR
+            } catch (e: TranslationRefusedException) {
+                lastFailure = e
+                FallbackStrategy.ErrorType.BLOCKED_CONTENT
+            } catch (e: TranslationMarkerException) {
+                lastFailure = e
+                FallbackStrategy.ErrorType.FORMAT_ERROR
             } catch (e: TranslationOutputException) {
                 lastFailure = e
                 FallbackStrategy.ErrorType.FORMAT_ERROR
@@ -338,6 +341,12 @@ class TranslationManager private constructor() {
             } catch (e: IOException) {
                 lastFailure = e
                 FallbackStrategy.ErrorType.NETWORK_ERROR
+            }
+
+            consecutiveRefusals = if (errorType == FallbackStrategy.ErrorType.BLOCKED_CONTENT) {
+                consecutiveRefusals + 1
+            } else {
+                0
             }
 
             if (attempt + 1 >= maxAttempts) {
@@ -360,6 +369,18 @@ class TranslationManager private constructor() {
             val shouldSplit = nextConfig.splitIntoSmallerChunks &&
                 chunk.length > nextConfig.maxChunkSize &&
                 splitDepth < MAX_SPLIT_DEPTH
+            if (errorType == FallbackStrategy.ErrorType.BLOCKED_CONTENT &&
+                fallbackStrategy.shouldStopRepeatedRefusal(
+                    consecutiveRefusals = consecutiveRefusals,
+                    chunkLength = chunk.length,
+                    splitDepth = splitDepth,
+                    maxSplitDepth = MAX_SPLIT_DEPTH,
+                )
+            ) {
+                throw lastFailure ?: TranslationRefusedException(
+                    "The model repeatedly refused the smallest retry chunk",
+                )
+            }
             onRetry(
                 TranslationRetryEvent(
                     chunkIndex = chunkIndex,
@@ -515,6 +536,9 @@ class TranslationManager private constructor() {
         }
 
         val normalized = normalizeModelOutput(rawResult)
+        // Validate before restoring markers. A refusal omits all placeholders and must be
+        // handled by the blocked-content strategy, not misreported as marker corruption.
+        fallbackStrategy.requireValidOutput(chunk, normalized)
         val restored = protector.restore(normalized)
         return parts.restore(restored)
     }

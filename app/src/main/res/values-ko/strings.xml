@@ -624,7 +624,9 @@
   <string name="translation_rate_limited">요청이 너무 많습니다. 잠시 후 다시 시도하세요.</string>
   <string name="translation_api_request_failed">번역 요청이 거부되었습니다(HTTP %1$d)</string>
   <string name="translation_service_unavailable">번역 서비스를 일시적으로 사용할 수 없습니다</string>
-  <string name="translation_output_invalid">번역이 불완전하거나 소설 마커가 손상되었습니다</string>
+  <string name="translation_output_invalid">번역이 불완전하거나 품질 검사를 통과하지 못했습니다</string>
+  <string name="translation_marker_invalid">모델이 소설 마커를 변경하여 재시도 후에도 복원하지 못했습니다</string>
+  <string name="translation_model_refused">모델이 이 콘텐츠의 번역을 거부했습니다. 지원하는 모델로 변경해 다시 시도하세요. 완료된 청크는 유지됩니다.</string>
   <string name="translation_model_unavailable">이 API 키로 모델 %1$s을(를) 사용할 수 없습니다</string>
   <string name="translation_model_title">번역 모델</string>
   <string name="translation_model_summary">소설 번역에 사용할 xAI 모델</string>

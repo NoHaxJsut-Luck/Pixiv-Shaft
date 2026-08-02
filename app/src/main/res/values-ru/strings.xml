@@ -617,7 +617,9 @@
   <string name="translation_rate_limited">Слишком много запросов. Повторите попытку позже.</string>
   <string name="translation_api_request_failed">Запрос перевода отклонён (HTTP %1$d)</string>
   <string name="translation_service_unavailable">Сервис перевода временно недоступен</string>
-  <string name="translation_output_invalid">Перевод неполный или повредил маркеры новеллы</string>
+  <string name="translation_output_invalid">Перевод неполный или не прошёл проверку качества</string>
+  <string name="translation_marker_invalid">Модель изменила маркеры новеллы, и их не удалось восстановить после повторных попыток</string>
+  <string name="translation_model_refused">Модель отказалась переводить это содержимое. Выберите поддерживающую его модель и повторите попытку; готовые фрагменты сохранятся.</string>
   <string name="translation_model_unavailable">Модель %1$s недоступна для этого ключа API</string>
   <string name="translation_model_title">Модель перевода</string>
   <string name="translation_model_summary">Модель xAI для перевода новелл</string>

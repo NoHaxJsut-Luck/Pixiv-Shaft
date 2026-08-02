@@ -21,6 +21,8 @@ object TranslationErrorMessages {
                 R.string.translation_model_unavailable,
                 error.model,
             )
+            is TranslationRefusedException -> context.getString(R.string.translation_model_refused)
+            is TranslationMarkerException -> context.getString(R.string.translation_marker_invalid)
             is TranslationOutputException -> context.getString(R.string.translation_output_invalid)
             else -> context.getString(R.string.translation_failed)
         }

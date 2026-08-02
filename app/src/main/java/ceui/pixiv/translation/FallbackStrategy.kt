@@ -54,6 +54,27 @@ class FallbackStrategy {
         }
     }
 
+    fun requireValidOutput(source: String, result: String) {
+        when (classifyOutput(source, result)) {
+            ErrorType.BLOCKED_CONTENT -> throw TranslationRefusedException(
+                "The model refused to translate this chunk",
+            )
+            ErrorType.FORMAT_ERROR -> throw TranslationOutputException(
+                "The model returned an incomplete or invalid translation",
+            )
+            else -> Unit
+        }
+    }
+
+    fun shouldStopRepeatedRefusal(
+        consecutiveRefusals: Int,
+        chunkLength: Int,
+        splitDepth: Int,
+        maxSplitDepth: Int,
+    ): Boolean = consecutiveRefusals >= 2 &&
+        chunkLength <= 320 &&
+        splitDepth >= maxSplitDepth
+
     /**
      * 检测是否是屏蔽响应
      */

@@ -725,7 +725,9 @@
   <string name="translation_rate_limited">請求過於頻繁，請稍後再試</string>
   <string name="translation_api_request_failed">翻譯請求遭拒（HTTP %1$d）</string>
   <string name="translation_service_unavailable">翻譯服務暫時無法使用，請稍後再試</string>
-  <string name="translation_output_invalid">模型傳回的譯文不完整或破壞了正文標記</string>
+  <string name="translation_output_invalid">模型傳回的譯文不完整或未通過品質檢查</string>
+  <string name="translation_marker_invalid">模型修改了小說正文標記，重試後仍無法還原</string>
+  <string name="translation_model_refused">模型拒絕翻譯目前內容。請更換支援此類內容的模型後重試；已完成的分塊會保留。</string>
   <string name="translation_model_unavailable">目前 API Key 無法使用模型 %1$s</string>
   <string name="translation_model_title">翻譯模型</string>
   <string name="translation_model_summary">用於小說翻譯的 xAI 模型名稱</string>

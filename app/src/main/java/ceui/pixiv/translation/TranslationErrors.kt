@@ -19,5 +19,9 @@ class TranslationApiException(
 
 class TranslationOutputException(message: String) : IOException(message)
 
+class TranslationMarkerException(message: String) : IOException(message)
+
+class TranslationRefusedException(message: String) : IOException(message)
+
 class TranslationModelUnavailableException(val model: String) :
     IOException("Translation model is unavailable: $model")
