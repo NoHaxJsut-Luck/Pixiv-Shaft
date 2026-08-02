@@ -1,26 +1,26 @@
 apply plugin: 'com.android.library'
 
 android {
-    compileSdk 36
+    compileSdk = 36
 
     defaultConfig {
-        minSdkVersion 24
-        targetSdkVersion 36
+        minSdk = 24
+        targetSdk = 36
 
-        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
 
     }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
     lint {
-        abortOnError false
+        abortOnError = false
         warning 'InvalidPackage'
     }
-    namespace 'me.jessyan.progressmanager'
+    namespace = 'me.jessyan.progressmanager'
 }
 
 dependencies {

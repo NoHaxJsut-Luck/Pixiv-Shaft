@@ -1,20 +1,28 @@
 package ceui.pixiv.utils
 
-
 data class PixivLinkInfo(val type: String, val value: String)
 
 fun extractPixivId(url: String): PixivLinkInfo {
-    // 更新正则表达式，支持 pixiv:// 类型（novels, illusts, users）以及普通 https 链接
-    val pixivRegex = """pixiv://(novels|illusts|users)/(\d+)""".toRegex()
-
-    // 先尝试匹配 pixiv:// 类型
-    val pixivMatchResult = pixivRegex.find(url)
-    if (pixivMatchResult != null) {
-        val type = pixivMatchResult.groupValues[1]
-        val id = pixivMatchResult.groupValues[2]
-        return PixivLinkInfo(type, id)
+    PIXIV_DEEP_LINK.find(url)?.let { match ->
+        return PixivLinkInfo(match.groupValues[1], match.groupValues[2])
+    }
+    PIXIV_ARTWORK_URL.find(url)?.let { match ->
+        return PixivLinkInfo("illusts", match.groupValues[1])
+    }
+    PIXIV_USER_URL.find(url)?.let { match ->
+        return PixivLinkInfo("users", match.groupValues[1])
+    }
+    PIXIV_NOVEL_URL.find(url)?.let { match ->
+        return PixivLinkInfo("novels", match.groupValues[1])
     }
 
-    // 如果都没匹配到，返回默认值
     return PixivLinkInfo("others", url)
 }
+
+private val PIXIV_DEEP_LINK = Regex("""pixiv://(novels|illusts|users)/(\d+)""")
+private val PIXIV_ARTWORK_URL =
+    Regex("""https?://(?:www\.)?pixiv\.net/(?:[a-z]{2}/)?artworks/(\d+)""", RegexOption.IGNORE_CASE)
+private val PIXIV_USER_URL =
+    Regex("""https?://(?:www\.)?pixiv\.net/(?:[a-z]{2}/)?users/(\d+)""", RegexOption.IGNORE_CASE)
+private val PIXIV_NOVEL_URL =
+    Regex("""https?://(?:www\.)?pixiv\.net/novel/show\.php\?[^#]*\bid=(\d+)""", RegexOption.IGNORE_CASE)

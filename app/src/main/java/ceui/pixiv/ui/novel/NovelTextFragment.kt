@@ -2,8 +2,11 @@ package ceui.pixiv.ui.novel
 
 import android.os.Bundle
 import android.view.View
+import android.widget.TextView
+import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.navArgs
+import androidx.recyclerview.widget.LinearLayoutManager
 import ceui.lisa.R
 import ceui.lisa.databinding.FragmentPixivListBinding
 import ceui.loxia.Novel
@@ -12,6 +15,11 @@ import ceui.loxia.ObjectType
 import ceui.loxia.combineLatest
 import ceui.loxia.pushFragment
 import ceui.loxia.requireEntityWrapper
+import ceui.pixiv.translation.TranslationApiKeyStore
+import ceui.pixiv.translation.TranslationConfig
+import ceui.pixiv.translation.TranslationErrorMessages
+import ceui.pixiv.translation.TranslationManager
+import ceui.pixiv.translation.TranslationPartialResultEvent
 import ceui.pixiv.ui.comments.CommentsFragmentArgs
 import ceui.pixiv.ui.common.FitsSystemWindowFragment
 import ceui.pixiv.ui.common.ListMode
@@ -24,6 +32,9 @@ import ceui.pixiv.ui.task.DownloadNovelTask
 import ceui.pixiv.utils.setOnClick
 import ceui.pixiv.widgets.MenuItem
 import ceui.pixiv.widgets.showActionMenu
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 
 class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSystemWindowFragment,
@@ -35,9 +46,16 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
         NovelTextViewModel(novelId)
     }
 
+    // 翻译状态管理
+    private var translationJob: Job? = null
+    private var isTranslating = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setUpRefreshState(binding, textModel, ListMode.VERTICAL)
+        setUpRefreshState(binding, textModel, listMode = ListMode.VERTICAL_NOVEL)
+
+        // 初始化翻译配置
+        TranslationConfig.getInstance().loadConfig(requireContext())
 
         val liveNovel = ObjectPool.get<Novel>(safeArgs.novelId)
         combineLatest(
@@ -86,8 +104,176 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
                             }
                         }
                     )
+                    add(
+                        MenuItem(
+                            getString(
+                                if (isTranslating) R.string.translation_cancel else R.string.translate,
+                            ),
+                        ) {
+                            if (isTranslating) {
+                                cancelTranslation(showMessage = true)
+                            } else {
+                                translate(textModel.sourceText())
+                            }
+                        }
+                    )
+                    if (textModel.hasTranslation) {
+                        add(
+                            MenuItem(
+                                getString(
+                                    if (textModel.isShowingTranslation) {
+                                        R.string.translation_show_original
+                                    } else {
+                                        R.string.translation_show_result
+                                    },
+                                ),
+                            ) {
+                                if (textModel.isShowingTranslation) {
+                                    textModel.showOriginal()
+                                } else {
+                                    textModel.showTranslation()
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun translate(text: String?) {
+        if (text.isNullOrEmpty()) {
+            return
+        }
+
+        if (isTranslating) {
+            cancelTranslation(showMessage = true)
+            return
+        }
+
+        translationJob?.cancel()
+
+        isTranslating = true
+
+        translationJob = viewLifecycleOwner.lifecycleScope.launch {
+            val loadingLayout = binding.loadingLayout
+            loadingLayout.visibility = View.VISIBLE
+            val loadingText = loadingLayout.findViewById<TextView>(R.id.progress_text)
+            var progressLabel = getString(R.string.translation_in_progress)
+            var previewLabel = ""
+            var partialResultEvent: TranslationPartialResultEvent? = null
+
+            fun renderProgress() {
+                loadingText?.text = if (previewLabel.isEmpty()) {
+                    progressLabel
+                } else {
+                    getString(R.string.translation_preview, progressLabel, previewLabel)
+                }
+            }
+            renderProgress()
+
+            try {
+                val apiKey = TranslationApiKeyStore.getApiKey()
+                if (apiKey.isEmpty()) {
+                    Toast.makeText(
+                        requireContext(),
+                        getString(R.string.translation_xai_api_key_required),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@launch
+                }
+
+                val translationManager = TranslationManager.getInstance()
+                val translatedText = translationManager.translate(
+                    text = text,
+                    apiKey = apiKey,
+                    from = "Japanese",
+                    to = "Chinese",
+                    context = requireContext(),
+                    onProgress = { partialResult ->
+                        previewLabel = partialResult
+                            .takeLast(120)
+                            .replace('\n', ' ')
+                            .trim()
+                        renderProgress()
+                    },
+                    onProgressUpdate = { completed, total, srcDone, srcTotal ->
+                        val pct = if (srcTotal > 0) (srcDone * 100 / srcTotal) else 0
+                        progressLabel = getString(
+                            R.string.translation_progress_detail,
+                            completed,
+                            total,
+                            pct,
+                        )
+                        renderProgress()
+                    },
+                    onRetry = { event ->
+                        progressLabel = getString(
+                            if (event.splitting) {
+                                R.string.translation_split_retry_progress
+                            } else {
+                                R.string.translation_retry_progress
+                            },
+                            event.chunkIndex + 1,
+                            event.totalChunks,
+                            event.attempt,
+                            event.maxAttempts,
+                        )
+                        renderProgress()
+                    },
+                    onPartialResult = { event ->
+                        partialResultEvent = event
+                    },
+                )
+
+                textModel.applyTranslation(translatedText)
+                val partial = partialResultEvent
+                if (partial == null) {
+                    Toast.makeText(
+                        requireContext(),
+                        R.string.translation_complete,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        requireContext(),
+                        getString(
+                            R.string.translation_partial_complete,
+                            partial.failedChunks,
+                            partial.totalChunks,
+                            partial.logLocation ?: getString(R.string.translation_log_save_failed),
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Toast.makeText(
+                    requireContext(),
+                    TranslationErrorMessages.get(requireContext(), e),
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                loadingLayout.visibility = View.GONE
+                isTranslating = false
+                translationJob = null
+            }
+        }
+    }
+
+    private fun cancelTranslation(showMessage: Boolean) {
+        if (!isTranslating) return
+        translationJob?.cancel()
+        if (showMessage && isAdded) {
+            Toast.makeText(requireContext(), R.string.translation_cancelled, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onDestroyView() {
+        cancelTranslation(showMessage = false)
+        translationJob = null
+        isTranslating = false
+        super.onDestroyView()
     }
 }

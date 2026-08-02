@@ -10,3 +10,7 @@
 /app/release/
 .idea/misc.xml
 /.kotlin
+/keystore.properties
+/.env
+*.jks
+*.pepk

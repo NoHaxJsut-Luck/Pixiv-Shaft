@@ -10,6 +10,8 @@ import com.google.gson.GsonBuilder;
 import java.util.Collections;
 
 import ceui.lisa.activities.Shaft;
+import ceui.lisa.BuildConfig;
+import ceui.lisa.feature.HostManager;
 import ceui.lisa.helper.LanguageHelper;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
@@ -76,8 +78,7 @@ public class Retro {
 
     private static OkHttpClient.Builder fuckChinaWithConfig(OkHttpClient.Builder before, boolean enable) {
         if(enable && Shaft.sSettings.isAutoFuckChina()){
-            before.sslSocketFactory(new RubySSLSocketFactory(), new pixivOkHttpClient());
-            before.dns(HttpDns.getInstance());
+            before.dns(HostManager.get());
         }
         return before;
     }
@@ -169,7 +170,9 @@ public class Retro {
     public static OkHttpClient.Builder getLogClient() {
         HttpLoggingInterceptor loggingInterceptor = new HttpLoggingInterceptor(
                 message -> Log.i("RetroLog", message));
-        loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY);
+        loggingInterceptor.setLevel(BuildConfig.DEBUG
+                ? HttpLoggingInterceptor.Level.BASIC
+                : HttpLoggingInterceptor.Level.NONE);
         return new OkHttpClient.Builder()
                 .addInterceptor(loggingInterceptor)
                 .protocols(Collections.singletonList(Protocol.HTTP_1_1));

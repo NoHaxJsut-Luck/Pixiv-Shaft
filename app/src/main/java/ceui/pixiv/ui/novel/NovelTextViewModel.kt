@@ -3,8 +3,6 @@ package ceui.pixiv.ui.novel
 import ceui.lisa.R
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import ceui.lisa.activities.Shaft
 import ceui.lisa.fragments.WebNovelParser
 import ceui.lisa.utils.Common
@@ -22,8 +20,6 @@ import ceui.pixiv.ui.common.HoldersViewModel
 import ceui.pixiv.ui.common.ListItemHolder
 import ceui.pixiv.ui.common.RefreshOwner
 import ceui.pixiv.ui.detail.UserInfoHolder
-import kotlinx.coroutines.launch
-import timber.log.Timber
 
 class NovelTextViewModel(
     private val novelId: Long,
@@ -31,6 +27,15 @@ class NovelTextViewModel(
 
     private val _webNovel = MutableLiveData<WebNovel>()
     val webNovel: LiveData<WebNovel> = _webNovel
+    private var renderedText: String? = null
+    private var originalText: String? = null
+    private var translatedText: String? = null
+
+    val hasTranslation: Boolean
+        get() = translatedText != null
+
+    val isShowingTranslation: Boolean
+        get() = translatedText != null && renderedText == translatedText
 
     init {
         refresh(RefreshHint.InitialLoad)
@@ -42,6 +47,47 @@ class NovelTextViewModel(
         val html = Client.appApi.getNovelText(novelId).string()
         val wNovel = WebNovelParser.parsePixivObject(html)?.novel
 
+        wNovel?.let {
+            _webNovel.value = it
+            originalText = it.text
+            if (translatedText == null) {
+                renderedText = it.text
+            }
+        }
+        _itemHolders.value = buildNovelHolders(renderedText.orEmpty(), wNovel, context)
+        _refreshState.value = RefreshState.LOADED(
+            hasContent = true, hasNext = false
+        )
+    }
+
+    fun applyTranslation(text: String) {
+        translatedText = text
+        renderText(text)
+    }
+
+    fun showOriginal() {
+        originalText?.let(::renderText)
+    }
+
+    fun showTranslation() {
+        translatedText?.let(::renderText)
+    }
+
+    fun sourceText(): String? = originalText ?: _webNovel.value?.text
+
+    private fun renderText(text: String) {
+        if (renderedText == text) return
+        renderedText = text
+        val wNovel = _webNovel.value
+        val context = Shaft.getContext()
+        _itemHolders.value = buildNovelHolders(text, wNovel, context)
+    }
+
+    private fun buildNovelHolders(
+        text: String,
+        webNovel: WebNovel?,
+        context: android.content.Context,
+    ): List<ListItemHolder> {
         val result = mutableListOf<ListItemHolder>()
         result.add(SpaceHolder())
         result.add(NovelHeaderHolder(novelId))
@@ -52,21 +98,17 @@ class NovelTextViewModel(
         result.add(RedSectionHeaderHolder("正文"))
         result.add(SpaceHolder())
 
-        wNovel?.let {
-            (wNovel.text?.split("\n") ?: listOf()).forEach { oneLineText ->
+        webNovel?.let {
+            text.split("\n").forEach { oneLineText ->
                 result.addAll(
-                    WebNovelParser.buildNovelHolders(wNovel, oneLineText)
+                    WebNovelParser.buildNovelHolders(it, oneLineText)
                 )
             }
-            _webNovel.value = it
         }
         result.add(SpaceHolder())
         result.add(NovelTextHolder("<===== End =====>", Common.getNovelTextColor()))
         result.add(SpaceHolder())
 
-        _itemHolders.value = result
-        _refreshState.value = RefreshState.LOADED(
-            hasContent = true, hasNext = false
-        )
+        return result
     }
 }

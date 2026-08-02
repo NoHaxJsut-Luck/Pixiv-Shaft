@@ -1,5 +1,6 @@
 package ceui.loxia
 
+import ceui.lisa.BuildConfig
 import ceui.lisa.http.AccountTokenApi
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -71,6 +72,15 @@ class ClientManager {
     }
 
     private var _shaftClient: OkHttpClient? = null
+
+    private fun OkHttpClient.Builder.addSafeLogging(): OkHttpClient.Builder {
+        if (BuildConfig.DEBUG) {
+            addInterceptor(HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.BASIC
+            })
+        }
+        return this
+    }
     val shaftClient: OkHttpClient
         get() {
             val theClient = _shaftClient
@@ -92,9 +102,7 @@ class ClientManager {
 
         okhttpClientBuilder.addInterceptor(HeaderInterceptor(true))
         okhttpClientBuilder.addInterceptor(TokenFetcherInterceptor())
-        okhttpClientBuilder.addInterceptor(HttpLoggingInterceptor().apply {
-            setLevel(HttpLoggingInterceptor.Level.BODY)
-        })
+        okhttpClientBuilder.addSafeLogging()
 
         return okhttpClientBuilder.build()
     }
@@ -116,12 +124,7 @@ class ClientManager {
             .protocols(listOf(Protocol.HTTP_1_1))
 
         okhttpClientBuilder.addInterceptor(HeaderInterceptor(false))
-        okhttpClientBuilder.addInterceptor(HttpLoggingInterceptor().apply {
-            setLevel(HttpLoggingInterceptor.Level.BODY)
-        })
-        okhttpClientBuilder.addInterceptor(HttpLoggingInterceptor().apply {
-            setLevel(HttpLoggingInterceptor.Level.BODY)
-        })
+        okhttpClientBuilder.addSafeLogging()
 
         return Retrofit.Builder()
             .baseUrl(OAUTH_HOST)
@@ -139,9 +142,7 @@ class ClientManager {
             .protocols(listOf(Protocol.HTTP_1_1))
 
         httpBuilder.addInterceptor(WebHeaderInterceptor())
-        httpBuilder.addInterceptor(HttpLoggingInterceptor().apply {
-            setLevel(HttpLoggingInterceptor.Level.BODY)
-        })
+        httpBuilder.addSafeLogging()
         return Retrofit.Builder()
             .baseUrl(WEB_API_HOST)
             .addConverterFactory(GsonConverterFactory.create())

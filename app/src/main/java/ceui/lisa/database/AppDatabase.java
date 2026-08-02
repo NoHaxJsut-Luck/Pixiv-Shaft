@@ -31,7 +31,7 @@ import ceui.pixiv.db.RemoteKeyDao;
                 RemoteKey.class,
         },
         version = 27,
-        exportSchema = false
+        exportSchema = true
 )
 public abstract class AppDatabase extends RoomDatabase {
 

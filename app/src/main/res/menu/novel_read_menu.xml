@@ -36,4 +36,17 @@
         android:orderInCategory="100"
         android:title="@string/string_278"
         app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_translate"
+        android:orderInCategory="100"
+        android:title="@string/translate"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_toggle_translation"
+        android:orderInCategory="100"
+        android:title="@string/translation_show_original"
+        android:visible="false"
+        app:showAsAction="never" />
 </menu>
