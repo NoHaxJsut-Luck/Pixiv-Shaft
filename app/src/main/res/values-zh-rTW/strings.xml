@@ -738,4 +738,11 @@
   <string name="translation_cache_clear">清除翻譯快取</string>
   <string name="translation_cache_clear_summary">刪除已快取的譯文和斷點資料</string>
   <string name="translation_cache_cleared">翻譯快取已清除</string>
+  <string name="translation_retry_progress">第 %1$d/%2$d 塊 · 正在進行第 %3$d/%4$d 次嘗試</string>
+  <string name="translation_split_retry_progress">第 %1$d/%2$d 塊 · 正在拆分並進行第 %3$d/%4$d 次嘗試</string>
+  <string name="translation_priority_title">優先翻譯</string>
+  <string name="translation_priority_summary">使用 xAI Priority Processing 降低等待時間</string>
+  <string name="translation_priority_warning">優先翻譯通常較快，但 xAI 會按約 2 倍價格計費。是否啟用？</string>
+  <string name="translation_priority_enabled">已啟用</string>
+  <string name="translation_priority_disabled">未啟用</string>
 </resources>

@@ -205,6 +205,20 @@ class NovelTextFragment : PixivFragment(R.layout.fragment_pixiv_list), FitsSyste
                         )
                         renderProgress()
                     },
+                    onRetry = { event ->
+                        progressLabel = getString(
+                            if (event.splitting) {
+                                R.string.translation_split_retry_progress
+                            } else {
+                                R.string.translation_retry_progress
+                            },
+                            event.chunkIndex + 1,
+                            event.totalChunks,
+                            event.attempt,
+                            event.maxAttempts,
+                        )
+                        renderProgress()
+                    },
                 )
 
                 textModel.applyTranslation(translatedText)

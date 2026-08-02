@@ -662,4 +662,11 @@
   <string name="translation_cache_clear">Clear translation cache</string>
   <string name="translation_cache_clear_summary">Delete cached translations and resume data</string>
   <string name="translation_cache_cleared">Translation cache cleared</string>
+  <string name="translation_retry_progress">Chunk %1$d/%2$d · Attempt %3$d/%4$d</string>
+  <string name="translation_split_retry_progress">Chunk %1$d/%2$d · Split retry %3$d/%4$d</string>
+  <string name="translation_priority_title">Priority translation</string>
+  <string name="translation_priority_summary">Use xAI Priority Processing to reduce latency</string>
+  <string name="translation_priority_warning">Priority translation is usually faster, but xAI charges about 2× the standard price. Enable it?</string>
+  <string name="translation_priority_enabled">Enabled</string>
+  <string name="translation_priority_disabled">Disabled</string>
 </resources>

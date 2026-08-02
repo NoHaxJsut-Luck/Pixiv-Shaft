@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import ceui.lisa.R;
 import ceui.pixiv.translation.TranslationManager;
+import ceui.pixiv.translation.TranslationProgressListener;
+import ceui.pixiv.translation.TranslationRetryEvent;
 
 /** Lifecycle-aware bridge for legacy Java novel screens. */
 public class TranslationHelper {
@@ -53,8 +55,27 @@ public class TranslationHelper {
                         "Chinese",
                         partialResult -> postToMain(() ->
                                 callback.onTranslationChunkReceived(0, partialResult, partialResult)),
-                        (completed, total, translatedChars, totalChars) -> postToMain(() ->
-                                updateTranslationProgress(completed, total, translatedChars, totalChars))
+                        new TranslationProgressListener() {
+                            @Override
+                            public void onProgress(
+                                    int completed,
+                                    int total,
+                                    int translatedChars,
+                                    int totalChars
+                            ) {
+                                postToMain(() -> updateTranslationProgress(
+                                        completed,
+                                        total,
+                                        translatedChars,
+                                        totalChars
+                                ));
+                            }
+
+                            @Override
+                            public void onRetry(TranslationRetryEvent event) {
+                                postToMain(() -> updateRetryProgress(event));
+                            }
+                        }
                 );
 
                 postToMain(() -> {
@@ -97,7 +118,7 @@ public class TranslationHelper {
         if (view == null) return;
         view.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
         if (show) {
-            TextView textView = view.findViewById(android.R.id.text1);
+            TextView textView = view.findViewById(R.id.text);
             if (textView != null) textView.setText(R.string.translation_in_progress);
         }
     }
@@ -106,8 +127,8 @@ public class TranslationHelper {
         View view = progressView;
         if (view == null) return;
 
-        ProgressBar progressBar = view.findViewById(android.R.id.progress);
-        TextView progressText = view.findViewById(android.R.id.text1);
+        ProgressBar progressBar = view.findViewById(R.id.progress);
+        TextView progressText = view.findViewById(R.id.text);
         if (progressBar == null || progressText == null) return;
 
         progressBar.setMax(Math.max(total, 1));
@@ -120,6 +141,22 @@ public class TranslationHelper {
                 current,
                 total,
                 charPercentage
+        ));
+    }
+
+    private void updateRetryProgress(TranslationRetryEvent event) {
+        View view = progressView;
+        if (view == null) return;
+        TextView progressText = view.findViewById(R.id.text);
+        if (progressText == null) return;
+        progressText.setText(appContext.getString(
+                event.getSplitting()
+                        ? R.string.translation_split_retry_progress
+                        : R.string.translation_retry_progress,
+                event.getChunkIndex() + 1,
+                event.getTotalChunks(),
+                event.getAttempt(),
+                event.getMaxAttempts()
         ));
     }
 

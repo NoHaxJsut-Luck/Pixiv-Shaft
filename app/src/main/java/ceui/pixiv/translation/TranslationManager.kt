@@ -7,12 +7,11 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -33,6 +32,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.coroutineContext
 import kotlin.math.max
 import kotlin.random.Random
@@ -40,15 +40,16 @@ import kotlin.random.Random
 class TranslationManager private constructor() {
 
     companion object {
-        private const val CHUNK_MAX_CHARS = 1600
-        private const val PARALLEL_CHUNK_CAP = 4
-        private const val GLOBAL_REQUEST_CAP = 4
+        private const val CHUNK_MAX_CHARS = 1250
+        private const val PARALLEL_CHUNK_CAP = 8
+        private const val GLOBAL_REQUEST_CAP = 8
         private const val CHUNK_ATTEMPT_CAP = 4
         private const val MAX_SPLIT_DEPTH = 2
-        private const val CONTENT_PROGRESS_INTERVAL_NS = 250_000_000L
+        private const val CONTENT_PROGRESS_INTERVAL_NS = 650_000_000L
+        private const val STREAM_PREVIEW_INTERVAL_NS = 450_000_000L
         private const val CONTEXT_BEFORE_CHARS = 320
         private const val CONTEXT_AFTER_CHARS = 160
-        private const val PROMPT_VERSION = 4
+        private const val PROMPT_VERSION = 5
         private val ID_LINE_REGEX = Regex("""-\s*id:\s*\d+""")
 
         @Volatile
@@ -79,6 +80,7 @@ class TranslationManager private constructor() {
         from: String = "Japanese",
         to: String = "Chinese",
         model: String = TranslationSettingsStore.getModel(),
+        priorityProcessing: Boolean = TranslationSettingsStore.isPriorityEnabled(),
         context: Context? = null,
         onProgress: (String) -> Unit = {},
         onProgressUpdate: (
@@ -87,6 +89,7 @@ class TranslationManager private constructor() {
             processedSourceChars: Int,
             totalSourceChars: Int,
         ) -> Unit = { _, _, _, _ -> },
+        onRetry: (TranslationRetryEvent) -> Unit = {},
     ): String {
         require(apiKey.isNotBlank()) { "API key must not be blank" }
         context?.let { TranslationConfig.getInstance().loadConfig(it) }
@@ -112,16 +115,17 @@ class TranslationManager private constructor() {
         val cachedResults = cache?.load() ?: MutableList(chunks.size) { null }
         val stateLock = Any()
         val results = cachedResults.toMutableList()
-        val drafts = MutableList<String?>(chunks.size) { null }
         val initiallyCompleted = results.count { it != null }
         val completedCount = AtomicInteger(initiallyCompleted)
         val processedSourceChars = AtomicInteger(
             chunks.indices.sumOf { index -> if (results[index] != null) chunks[index].length else 0 },
         )
         val lastContentProgressNs = AtomicLong(0L)
+        val latestPreview = AtomicReference("")
         val totalSourceChars = text.length
 
-        suspend fun publishProgress(force: Boolean = false) {
+        suspend fun publishProgress(preview: String, force: Boolean = false) {
+            latestPreview.set(preview.takeLast(180))
             val now = System.nanoTime()
             val previous = lastContentProgressNs.get()
             val shouldPublish = force ||
@@ -129,13 +133,16 @@ class TranslationManager private constructor() {
                     lastContentProgressNs.compareAndSet(previous, now))
             if (!shouldPublish) return
 
-            val snapshot = synchronized(stateLock) {
-                chunks.indices.map { index -> results[index] ?: drafts[index] ?: chunks[index] }
-            }
-            val partialText = TranslationTextChunker.merge(snapshot)
             withContext(Dispatchers.Main.immediate) {
-                runCatching { onProgress(partialText) }
+                runCatching { onProgress(latestPreview.get()) }
                     .onFailure { Timber.w(it, "Translation preview callback failed") }
+            }
+        }
+
+        suspend fun publishRetry(event: TranslationRetryEvent) {
+            withContext(Dispatchers.Main.immediate) {
+                runCatching { onRetry(event) }
+                    .onFailure { Timber.w(it, "Translation retry callback failed") }
             }
         }
 
@@ -151,7 +158,7 @@ class TranslationManager private constructor() {
 
         if (initiallyCompleted > 0) {
             publishCountProgress()
-            publishProgress(force = true)
+            results.filterNotNull().lastOrNull()?.let { publishProgress(it, force = true) }
         }
 
         val missingIndices = chunks.indices.filter { results[it] == null }
@@ -159,11 +166,13 @@ class TranslationManager private constructor() {
             val parallelism = minOf(PARALLEL_CHUNK_CAP, missingIndices.size)
             val dispatcher = Dispatchers.IO.limitedParallelism(max(1, parallelism))
             coroutineScope {
-                val jobs: List<Job> = missingIndices.map { index ->
-                    launch(dispatcher) {
+                missingIndices.map { index ->
+                    async(dispatcher) {
                         val chunk = chunks[index]
                         val translated = processChunkWithRetry(
                             chunk = chunk,
+                            chunkIndex = index,
+                            totalChunks = chunks.size,
                             contextBefore = chunks.getOrNull(index - 1)
                                 ?.takeLast(CONTEXT_BEFORE_CHARS)
                                 .orEmpty(),
@@ -176,24 +185,23 @@ class TranslationManager private constructor() {
                             from = from,
                             to = to,
                             model = model,
+                            priorityProcessing = priorityProcessing,
+                            onRetry = ::publishRetry,
                             onPartial = { partial ->
-                                synchronized(stateLock) { drafts[index] = partial }
-                                publishProgress()
+                                publishProgress(partial)
                             },
                         )
 
                         synchronized(stateLock) {
                             results[index] = translated
-                            drafts[index] = null
                         }
                         cache?.saveChunk(index, translated)
                         processedSourceChars.addAndGet(chunk.length)
                         completedCount.incrementAndGet()
                         publishCountProgress()
-                        publishProgress(force = completedCount.get() == chunks.size)
+                        publishProgress(translated, force = completedCount.get() == chunks.size)
                     }
-                }
-                jobs.joinAll()
+                }.awaitAll()
             }
         }
 
@@ -263,12 +271,15 @@ class TranslationManager private constructor() {
                 onProgressUpdate = { completed, total, processedChars, totalChars ->
                     onProgressUpdate.onProgress(completed, total, processedChars, totalChars)
                 },
+                onRetry = { event -> onProgressUpdate.onRetry(event) },
             )
         }
     }
 
     private suspend fun processChunkWithRetry(
         chunk: String,
+        chunkIndex: Int,
+        totalChunks: Int,
         contextBefore: String,
         contextAfter: String,
         conversationId: String,
@@ -277,8 +288,10 @@ class TranslationManager private constructor() {
         from: String,
         to: String,
         model: String,
+        priorityProcessing: Boolean,
         splitDepth: Int = 0,
         initialConfig: FallbackStrategy.RetryConfig? = null,
+        onRetry: suspend (TranslationRetryEvent) -> Unit,
         onPartial: suspend (String) -> Unit,
     ): String {
         var attempt = 0
@@ -286,7 +299,9 @@ class TranslationManager private constructor() {
 
         while (attempt < maxAttempts) {
             coroutineContext.ensureActive()
-            try {
+            var lastFailure: Exception? = null
+            var retryAfterMs = 0L
+            val errorType = try {
                 val result = processChunk(
                     chunk = chunk,
                     contextBefore = contextBefore,
@@ -296,83 +311,89 @@ class TranslationManager private constructor() {
                     from = from,
                     to = to,
                     model = model,
+                    priorityProcessing = priorityProcessing,
                     retry = attempt,
                     retryConfig = attemptConfig,
                     onPartial = onPartial,
                 )
 
-                val errorType = fallbackStrategy.detectErrorType(null, result)
-                val stillUntranslated = fallbackStrategy.looksMostlyUntranslated(chunk, result)
-                if (errorType != FallbackStrategy.ErrorType.BLOCKED_CONTENT &&
-                    errorType != FallbackStrategy.ErrorType.FORMAT_ERROR &&
-                    !stillUntranslated
-                ) {
-                    return result
-                }
-
-                val nextConfig = when {
-                    errorType == FallbackStrategy.ErrorType.BLOCKED_CONTENT ->
-                        fallbackStrategy.handleBlockedContent(chunk, attempt)
-                    else -> fallbackStrategy.handleFormatError(chunk, attempt)
-                }
-                if (!nextConfig.shouldRetry || attempt + 1 >= maxAttempts) {
-                    throw TranslationOutputException("The model returned an incomplete or refused translation")
-                }
-
-                waitBeforeRetry(nextConfig.delayMs)
-                if (nextConfig.splitIntoSmallerChunks &&
-                    chunk.length > nextConfig.maxChunkSize &&
-                    splitDepth < MAX_SPLIT_DEPTH
-                ) {
-                    return translateSmallerChunks(
-                        chunk = chunk,
-                        contextBefore = contextBefore,
-                        contextAfter = contextAfter,
-                        conversationId = conversationId,
-                        apiKey = apiKey,
-                        from = from,
-                        to = to,
-                        model = model,
-                        maxChunkSize = nextConfig.maxChunkSize,
-                        splitDepth = splitDepth + 1,
-                        initialConfig = nextConfig.copy(splitIntoSmallerChunks = false),
-                        onPartial = onPartial,
+                fallbackStrategy.classifyOutput(chunk, result)?.also {
+                    lastFailure = TranslationOutputException(
+                        "The model returned an incomplete or refused translation",
                     )
-                }
-
-                attemptConfig = nextConfig
-                attempt++
+                } ?: return result
             } catch (e: CancellationException) {
                 throw e
             } catch (e: TranslationApiException) {
-                if (!e.isRetryable || attempt + 1 >= maxAttempts) throw e
-                val nextConfig = fallbackStrategy.handleNetworkError(attempt)
-                if (!nextConfig.shouldRetry) throw e
-                waitBeforeRetry(max(nextConfig.delayMs, e.retryAfterMs ?: 0L))
-                attemptConfig = nextConfig
-                attempt++
+                if (!e.isRetryable) throw e
+                lastFailure = e
+                retryAfterMs = e.retryAfterMs ?: 0L
+                FallbackStrategy.ErrorType.NETWORK_ERROR
             } catch (e: TranslationOutputException) {
-                if (attempt + 1 >= maxAttempts) throw e
-                val nextConfig = fallbackStrategy.handleFormatError(chunk, attempt)
-                if (!nextConfig.shouldRetry) throw e
-                waitBeforeRetry(nextConfig.delayMs)
-                attemptConfig = nextConfig
-                attempt++
+                lastFailure = e
+                FallbackStrategy.ErrorType.FORMAT_ERROR
             } catch (e: SocketTimeoutException) {
-                if (attempt + 1 >= maxAttempts) throw IOException("Translation timed out", e)
-                val nextConfig = fallbackStrategy.handleTimeout(chunk, attempt)
-                if (!nextConfig.shouldRetry) throw IOException("Translation timed out", e)
-                waitBeforeRetry(nextConfig.delayMs)
-                attemptConfig = nextConfig
-                attempt++
+                lastFailure = IOException("Translation timed out", e)
+                FallbackStrategy.ErrorType.TIMEOUT
             } catch (e: IOException) {
-                if (attempt + 1 >= maxAttempts) throw e
-                val nextConfig = fallbackStrategy.handleNetworkError(attempt)
-                if (!nextConfig.shouldRetry) throw e
-                waitBeforeRetry(nextConfig.delayMs)
-                attemptConfig = nextConfig
-                attempt++
+                lastFailure = e
+                FallbackStrategy.ErrorType.NETWORK_ERROR
             }
+
+            if (attempt + 1 >= maxAttempts) {
+                throw lastFailure ?: TranslationOutputException("Translation output validation failed")
+            }
+
+            val nextConfig = when (errorType) {
+                FallbackStrategy.ErrorType.BLOCKED_CONTENT ->
+                    fallbackStrategy.handleBlockedContent(chunk, attempt)
+                FallbackStrategy.ErrorType.FORMAT_ERROR ->
+                    fallbackStrategy.handleFormatError(chunk, attempt)
+                FallbackStrategy.ErrorType.TIMEOUT ->
+                    fallbackStrategy.handleTimeout(chunk, attempt)
+                else -> fallbackStrategy.handleNetworkError(attempt)
+            }
+            if (!nextConfig.shouldRetry) {
+                throw lastFailure ?: TranslationOutputException("Translation retry was rejected")
+            }
+
+            val shouldSplit = nextConfig.splitIntoSmallerChunks &&
+                chunk.length > nextConfig.maxChunkSize &&
+                splitDepth < MAX_SPLIT_DEPTH
+            onRetry(
+                TranslationRetryEvent(
+                    chunkIndex = chunkIndex,
+                    totalChunks = totalChunks,
+                    attempt = attempt + 2,
+                    maxAttempts = maxAttempts,
+                    splitting = shouldSplit,
+                ),
+            )
+            waitBeforeRetry(max(nextConfig.delayMs, retryAfterMs))
+
+            if (shouldSplit) {
+                return translateSmallerChunks(
+                    chunk = chunk,
+                    chunkIndex = chunkIndex,
+                    totalChunks = totalChunks,
+                    contextBefore = contextBefore,
+                    contextAfter = contextAfter,
+                    conversationId = conversationId,
+                    apiKey = apiKey,
+                    from = from,
+                    to = to,
+                    model = model,
+                    priorityProcessing = priorityProcessing,
+                    maxChunkSize = nextConfig.maxChunkSize,
+                    splitDepth = splitDepth + 1,
+                    initialConfig = nextConfig.copy(splitIntoSmallerChunks = false),
+                    onRetry = onRetry,
+                    onPartial = onPartial,
+                )
+            }
+
+            attemptConfig = nextConfig
+            attempt++
         }
 
         throw IOException("Chunk translation failed after $maxAttempts attempts")
@@ -380,6 +401,8 @@ class TranslationManager private constructor() {
 
     private suspend fun translateSmallerChunks(
         chunk: String,
+        chunkIndex: Int,
+        totalChunks: Int,
         contextBefore: String,
         contextAfter: String,
         conversationId: String,
@@ -387,43 +410,44 @@ class TranslationManager private constructor() {
         from: String,
         to: String,
         model: String,
+        priorityProcessing: Boolean,
         maxChunkSize: Int,
         splitDepth: Int,
         initialConfig: FallbackStrategy.RetryConfig,
+        onRetry: suspend (TranslationRetryEvent) -> Unit,
         onPartial: suspend (String) -> Unit,
     ): String {
         val subChunks = TranslationTextChunker.split(chunk, maxChunkSize)
         val completed = MutableList<String?>(subChunks.size) { null }
-        subChunks.forEachIndexed { index, subChunk ->
-            val translated = processChunkWithRetry(
-                chunk = subChunk,
-                contextBefore = subChunks.getOrNull(index - 1)
-                    ?.takeLast(CONTEXT_BEFORE_CHARS)
-                    ?: contextBefore.takeLast(CONTEXT_BEFORE_CHARS),
-                contextAfter = subChunks.getOrNull(index + 1)
-                    ?.take(CONTEXT_AFTER_CHARS)
-                    ?: contextAfter.take(CONTEXT_AFTER_CHARS),
-                conversationId = conversationId,
-                apiKey = apiKey,
-                maxAttempts = CHUNK_ATTEMPT_CAP,
-                from = from,
-                to = to,
-                model = model,
-                splitDepth = splitDepth,
-                initialConfig = initialConfig,
-                onPartial = { partial ->
-                    val preview = subChunks.indices.map { subIndex ->
-                        completed[subIndex] ?: if (subIndex == index) partial else subChunks[subIndex]
-                    }
-                    onPartial(TranslationTextChunker.merge(preview))
-                },
-            )
-            completed[index] = translated
-            onPartial(
-                TranslationTextChunker.merge(
-                    subChunks.indices.map { subIndex -> completed[subIndex] ?: subChunks[subIndex] },
-                ),
-            )
+        val dispatcher = Dispatchers.IO.limitedParallelism(minOf(4, subChunks.size).coerceAtLeast(1))
+        coroutineScope {
+            subChunks.mapIndexed { index, subChunk ->
+                async(dispatcher) {
+                    val translated = processChunkWithRetry(
+                        chunk = subChunk,
+                        chunkIndex = chunkIndex,
+                        totalChunks = totalChunks,
+                        contextBefore = subChunks.getOrNull(index - 1)
+                            ?.takeLast(CONTEXT_BEFORE_CHARS)
+                            ?: contextBefore.takeLast(CONTEXT_BEFORE_CHARS),
+                        contextAfter = subChunks.getOrNull(index + 1)
+                            ?.take(CONTEXT_AFTER_CHARS)
+                            ?: contextAfter.take(CONTEXT_AFTER_CHARS),
+                        conversationId = conversationId,
+                        apiKey = apiKey,
+                        maxAttempts = CHUNK_ATTEMPT_CAP,
+                        from = from,
+                        to = to,
+                        model = model,
+                        priorityProcessing = priorityProcessing,
+                        splitDepth = splitDepth,
+                        initialConfig = initialConfig,
+                        onRetry = onRetry,
+                        onPartial = onPartial,
+                    )
+                    synchronized(completed) { completed[index] = translated }
+                }
+            }.awaitAll()
         }
         return TranslationTextChunker.merge(completed.filterNotNull())
     }
@@ -437,6 +461,7 @@ class TranslationManager private constructor() {
         from: String,
         to: String,
         model: String,
+        priorityProcessing: Boolean,
         retry: Int,
         retryConfig: FallbackStrategy.RetryConfig?,
         onPartial: suspend (String) -> Unit,
@@ -451,17 +476,19 @@ class TranslationManager private constructor() {
         } else {
             ""
         }
+        val userInstruction = listOf(markerInstruction, continuityPrompt)
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
         val (systemPrompt, userPrompt) = if (retryConfig?.useAlternativePrompt == true) {
-            (fallbackStrategy.getAlternativePrompt() + continuityPrompt) to
-                "$markerInstruction\n\n${protector.protectedText}"
+            fallbackStrategy.getAlternativePrompt() to
+                "$userInstruction\n\n<translation_source>\n${protector.protectedText}\n</translation_source>"
         } else {
             promptBuilder.buildTranslationRequest(
                 text = protector.protectedText,
                 from = from,
                 to = to,
                 isMultiParagraph = false,
-                termsPrompt = continuityPrompt,
-                htmlOnly = markerInstruction,
+                htmlOnly = userInstruction,
             )
         }
 
@@ -469,7 +496,8 @@ class TranslationManager private constructor() {
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             model = model,
-            temperature = retryConfig?.temperature ?: if (retry < 2) 0.3 else 0.2,
+            temperature = retryConfig?.temperature ?: if (retry == 0) 0.15 else 0.1,
+            priorityProcessing = priorityProcessing,
         )
         val request = buildRequest(apiKey, requestBody, conversationId)
         val rawResult = requestSemaphore.withPermit {
@@ -513,6 +541,7 @@ class TranslationManager private constructor() {
         userPrompt: String,
         model: String,
         temperature: Double,
+        priorityProcessing: Boolean,
     ): String {
         val messages = JsonArray().apply {
             add(JsonObject().apply {
@@ -528,8 +557,11 @@ class TranslationManager private constructor() {
         return JsonObject().apply {
             addProperty("model", model)
             addProperty("temperature", temperature)
-            addProperty("max_tokens", 8192)
+            addProperty("max_tokens", 4096)
             addProperty("stream", true)
+            if (priorityProcessing) {
+                addProperty("service_tier", "priority")
+            }
             if (model == "grok-4.3" || model.startsWith("grok-4.3-")) {
                 addProperty("reasoning_effort", "none")
             }
@@ -555,6 +587,7 @@ class TranslationManager private constructor() {
         val source = response.body?.source() ?: throw IOException("Empty response body")
         val content = StringBuilder()
         var finishReason: String? = null
+        var lastPreviewNs = 0L
 
         while (!source.exhausted()) {
             coroutineContext.ensureActive()
@@ -573,12 +606,17 @@ class TranslationManager private constructor() {
             val piece = extractMessageContentOrNull(delta).orEmpty()
             if (piece.isNotEmpty()) {
                 content.append(piece)
-                onPartial(content.toString())
+                val now = System.nanoTime()
+                if (now - lastPreviewNs >= STREAM_PREVIEW_INTERVAL_NS) {
+                    lastPreviewNs = now
+                    onPartial(content.toString())
+                }
             }
         }
 
-        if (finishReason == "length") {
-            throw TranslationOutputException("The model output was truncated")
+        if (content.isNotEmpty()) onPartial(content.toString())
+        if (finishReason != null && finishReason != "stop") {
+            throw TranslationOutputException("The model stopped with reason: $finishReason")
         }
         return content.toString().ifEmpty { throw IOException("Empty streaming response") }
     }
@@ -588,8 +626,9 @@ class TranslationManager private constructor() {
         val root = JsonParser.parseString(responseBody).asJsonObject
         val choice = root.getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
             ?: throw IOException("Invalid response structure: missing choices")
-        if (choice.get("finish_reason")?.takeIf { !it.isJsonNull }?.asString == "length") {
-            throw TranslationOutputException("The model output was truncated")
+        val finishReason = choice.get("finish_reason")?.takeIf { !it.isJsonNull }?.asString
+        if (finishReason != null && finishReason != "stop") {
+            throw TranslationOutputException("The model stopped with reason: $finishReason")
         }
         val message = choice.getAsJsonObject("message")
             ?: throw IOException("Invalid response structure: missing message")

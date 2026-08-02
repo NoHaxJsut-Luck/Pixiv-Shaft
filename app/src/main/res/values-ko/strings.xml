@@ -637,4 +637,11 @@
   <string name="translation_cache_clear">번역 캐시 지우기</string>
   <string name="translation_cache_clear_summary">캐시된 번역과 이어받기 데이터를 삭제합니다</string>
   <string name="translation_cache_cleared">번역 캐시를 지웠습니다</string>
+  <string name="translation_retry_progress">청크 %1$d/%2$d · %3$d/%4$d번째 시도</string>
+  <string name="translation_split_retry_progress">청크 %1$d/%2$d · 분할 후 %3$d/%4$d번째 시도</string>
+  <string name="translation_priority_title">우선 번역</string>
+  <string name="translation_priority_summary">xAI Priority Processing으로 대기 시간을 줄입니다</string>
+  <string name="translation_priority_warning">우선 번역은 보통 더 빠르지만 xAI 요금이 약 2배입니다. 사용하시겠습니까?</string>
+  <string name="translation_priority_enabled">사용</string>
+  <string name="translation_priority_disabled">사용 안 함</string>
 </resources>

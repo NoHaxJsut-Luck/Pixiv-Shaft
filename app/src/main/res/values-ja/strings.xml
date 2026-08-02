@@ -725,4 +725,11 @@
   <string name="translation_cache_clear">翻訳キャッシュを消去</string>
   <string name="translation_cache_clear_summary">キャッシュ済み翻訳と再開データを削除します</string>
   <string name="translation_cache_cleared">翻訳キャッシュを消去しました</string>
+  <string name="translation_retry_progress">分割 %1$d/%2$d・%3$d/%4$d 回目を試行中</string>
+  <string name="translation_split_retry_progress">分割 %1$d/%2$d・再分割して %3$d/%4$d 回目を試行中</string>
+  <string name="translation_priority_title">優先翻訳</string>
+  <string name="translation_priority_summary">xAI Priority Processingで待ち時間を短縮します</string>
+  <string name="translation_priority_warning">優先翻訳は通常高速ですが、xAIの料金は約2倍になります。有効にしますか？</string>
+  <string name="translation_priority_enabled">有効</string>
+  <string name="translation_priority_disabled">無効</string>
 </resources>

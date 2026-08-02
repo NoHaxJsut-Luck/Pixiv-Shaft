@@ -10,4 +10,6 @@ fun interface TranslationProgressListener {
         processedSourceChars: Int,
         totalSourceChars: Int,
     )
+
+    fun onRetry(event: TranslationRetryEvent) = Unit
 }

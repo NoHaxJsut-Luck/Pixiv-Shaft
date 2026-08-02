@@ -7,6 +7,16 @@ import org.junit.Test
 class TranslationTextChunkerTest {
 
     @Test
+    fun tenThousandCharactersFitInEightFastPathChunks() {
+        val source = "あ".repeat(10_000)
+
+        val chunks = TranslationTextChunker.split(source, 1250)
+
+        assertEquals(8, chunks.size)
+        assertEquals(source, TranslationTextChunker.merge(chunks))
+    }
+
+    @Test
     fun splitPreservesEverySourceCharacter() {
         val source = "第一段。\n\n第二段！\n第三段？".repeat(80)
 

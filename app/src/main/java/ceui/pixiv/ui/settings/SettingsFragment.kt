@@ -177,6 +177,33 @@ class SettingsFragment : PixivFragment(R.layout.fragment_pixiv_list), LogOutActi
                 },
 
                 TabCellHolder(
+                    getString(R.string.translation_priority_title),
+                    getString(R.string.translation_priority_summary),
+                    getString(
+                        if (TranslationSettingsStore.isPriorityEnabled()) {
+                            R.string.translation_priority_enabled
+                        } else {
+                            R.string.translation_priority_disabled
+                        },
+                    ),
+                ).onItemClick {
+                    if (TranslationSettingsStore.isPriorityEnabled()) {
+                        TranslationSettingsStore.setPriorityEnabled(false)
+                        adapter.submitList(buildSettingsList())
+                    } else {
+                        AlertDialog.Builder(requireContext())
+                            .setTitle(R.string.translation_priority_title)
+                            .setMessage(R.string.translation_priority_warning)
+                            .setPositiveButton(R.string.translation_priority_enabled) { _, _ ->
+                                TranslationSettingsStore.setPriorityEnabled(true)
+                                adapter.submitList(buildSettingsList())
+                            }
+                            .setNegativeButton(R.string.cancel, null)
+                            .show()
+                    }
+                },
+
+                TabCellHolder(
                     getString(R.string.translation_test_connection),
                     getString(R.string.translation_test_connection_summary),
                 ).onItemClick {

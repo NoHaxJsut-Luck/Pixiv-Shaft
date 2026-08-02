@@ -630,4 +630,11 @@
   <string name="translation_cache_clear">Çeviri önbelleğini temizle</string>
   <string name="translation_cache_clear_summary">Önbelleğe alınan çevirileri ve devam verilerini sil</string>
   <string name="translation_cache_cleared">Çeviri önbelleği temizlendi</string>
+  <string name="translation_retry_progress">Parça %1$d/%2$d · Deneme %3$d/%4$d</string>
+  <string name="translation_split_retry_progress">Parça %1$d/%2$d · Bölerek deneme %3$d/%4$d</string>
+  <string name="translation_priority_title">Öncelikli çeviri</string>
+  <string name="translation_priority_summary">xAI Priority Processing ile gecikmeyi azalt</string>
+  <string name="translation_priority_warning">Öncelikli çeviri genellikle daha hızlıdır, ancak xAI yaklaşık 2 kat ücret alır. Etkinleştirilsin mi?</string>
+  <string name="translation_priority_enabled">Etkin</string>
+  <string name="translation_priority_disabled">Devre dışı</string>
 </resources>

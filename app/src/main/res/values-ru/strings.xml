@@ -630,4 +630,11 @@
   <string name="translation_cache_clear">Очистить кэш перевода</string>
   <string name="translation_cache_clear_summary">Удалить переводы и данные продолжения из кэша</string>
   <string name="translation_cache_cleared">Кэш перевода очищен</string>
+  <string name="translation_retry_progress">Часть %1$d/%2$d · Попытка %3$d/%4$d</string>
+  <string name="translation_split_retry_progress">Часть %1$d/%2$d · Разделение, попытка %3$d/%4$d</string>
+  <string name="translation_priority_title">Приоритетный перевод</string>
+  <string name="translation_priority_summary">Сократить задержку с xAI Priority Processing</string>
+  <string name="translation_priority_warning">Приоритетный перевод обычно быстрее, но xAI взимает примерно двойную плату. Включить?</string>
+  <string name="translation_priority_enabled">Включено</string>
+  <string name="translation_priority_disabled">Выключено</string>
 </resources>

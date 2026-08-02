@@ -1,6 +1,5 @@
 package ceui.pixiv.translation
 
-import android.util.Log
 import java.io.IOException
 import java.net.SocketTimeoutException
 
@@ -8,10 +7,6 @@ import java.net.SocketTimeoutException
  * 翻译失败时的降级策略
  */
 class FallbackStrategy {
-
-    companion object {
-        private const val TAG = "FallbackStrategy"
-    }
 
     /**
      * 错误类型
@@ -42,7 +37,6 @@ class FallbackStrategy {
     fun detectErrorType(exception: Exception?, responseContent: String? = null): ErrorType {
         return when {
             exception is SocketTimeoutException -> ErrorType.TIMEOUT
-            exception is IOException && exception.message?.contains("HTTP 4") == true -> ErrorType.BLOCKED_CONTENT
             responseContent != null && isBlockedResponse(responseContent) -> ErrorType.BLOCKED_CONTENT
             responseContent != null && isFormatError(responseContent) -> ErrorType.FORMAT_ERROR
             exception is IOException -> ErrorType.NETWORK_ERROR
@@ -50,22 +44,65 @@ class FallbackStrategy {
         }
     }
 
+    fun classifyOutput(source: String, result: String): ErrorType? {
+        return when {
+            isBlockedResponse(result) -> ErrorType.BLOCKED_CONTENT
+            isFormatError(result) -> ErrorType.FORMAT_ERROR
+            looksMostlyUntranslated(source, result) -> ErrorType.FORMAT_ERROR
+            isSuspiciouslyShort(source, result) -> ErrorType.FORMAT_ERROR
+            else -> null
+        }
+    }
+
     /**
      * 检测是否是屏蔽响应
      */
     private fun isBlockedResponse(content: String): Boolean {
-        val blockedKeywords = listOf(
+        val compact = content.trim().lowercase()
+        if (compact.length > 500) return false
+
+        val strongRefusalPhrases = listOf(
+            "翻译不通过",
+            "翻譯不通過",
+            "未通过翻译",
+            "未通過翻譯",
             "无法提供",
             "无法继续提供",
             "无法为您提供",
             "不适合进行翻译",
             "不适合翻译",
             "不能协助翻译",
-            "无法完成该翻译"
+            "无法完成该翻译",
+            "無法完成該翻譯",
+            "i cannot translate",
+            "i can't translate",
+            "unable to translate",
+            "cannot assist with this translation",
+            "can't assist with this translation",
+            "翻訳できません",
+            "翻訳することはできません",
+            "翻訳をお手伝いできません",
         )
+        if (strongRefusalPhrases.any(compact::contains)) return true
 
-        val lowerContent = content.lowercase()
-        return content.length < 500 && blockedKeywords.any { lowerContent.contains(it.lowercase()) }
+        val genericRefusalPhrases = listOf(
+            "无法翻译",
+            "無法翻譯",
+            "不能翻译",
+            "不能翻譯",
+            "无法协助",
+            "無法協助",
+            "cannot help with",
+            "can't help with",
+            "お手伝いできません",
+        )
+        val startsLikeRefusal = compact.startsWith("抱歉") ||
+            compact.startsWith("对不起") ||
+            compact.startsWith("對不起") ||
+            compact.startsWith("sorry") ||
+            compact.startsWith("申し訳")
+        return genericRefusalPhrases.any(compact::contains) &&
+            (compact.length < 180 || startsLikeRefusal)
     }
 
     /**
@@ -108,27 +145,37 @@ class FallbackStrategy {
         return false
     }
 
+    fun isSuspiciouslyShort(source: String, result: String): Boolean {
+        val sourceLength = source.count { !it.isWhitespace() }
+        if (sourceLength < 240) return false
+        val resultLength = result.count { !it.isWhitespace() }
+        val minimumExpected = maxOf(32, (sourceLength * 0.12).toInt())
+        return resultLength < minimumExpected
+    }
+
     /**
      * 处理屏蔽内容错误
      */
     fun handleBlockedContent(chunk: String, retryCount: Int): RetryConfig {
-        Log.w(TAG, "Detected blocked content, retry count: $retryCount")
         return when {
             retryCount == 0 -> {
-                // 第一次重试：使用更温和的prompt
                 RetryConfig(
                     shouldRetry = true,
                     useAlternativePrompt = true,
-                    temperature = 0.3,
-                    delayMs = 1000
+                    splitIntoSmallerChunks = chunk.length > 420,
+                    maxChunkSize = 420,
+                    temperature = 0.15,
+                    delayMs = 120,
                 )
             }
             retryCount == 1 -> {
                 RetryConfig(
                     shouldRetry = true,
+                    useAlternativePrompt = true,
                     splitIntoSmallerChunks = true,
-                    maxChunkSize = 400,
-                    delayMs = 1500
+                    maxChunkSize = 280,
+                    temperature = 0.1,
+                    delayMs = 180,
                 )
             }
             retryCount == 2 -> {
@@ -136,14 +183,13 @@ class FallbackStrategy {
                     shouldRetry = true,
                     useAlternativePrompt = true,
                     splitIntoSmallerChunks = true,
-                    maxChunkSize = 280,
-                    temperature = 0.35,
-                    delayMs = 1800
+                    maxChunkSize = 180,
+                    temperature = 0.1,
+                    delayMs = 250,
                 )
             }
             else -> {
                 // 放弃重试
-                Log.e(TAG, "Blocked content cannot be translated after multiple retries")
                 RetryConfig(shouldRetry = false)
             }
         }
@@ -153,31 +199,29 @@ class FallbackStrategy {
      * 处理超时错误
      */
     fun handleTimeout(chunk: String, retryCount: Int): RetryConfig {
-        Log.w(TAG, "Detected timeout, retry count: $retryCount, chunk size: ${chunk.length}")
         return when {
-            retryCount == 0 -> {
-                RetryConfig(
-                    shouldRetry = true,
-                    delayMs = 900
-                )
-            }
-            retryCount == 1 && chunk.length > 500 -> {
+            retryCount == 0 && chunk.length > 700 -> {
                 RetryConfig(
                     shouldRetry = true,
                     splitIntoSmallerChunks = true,
-                    maxChunkSize = chunk.length / 2,
-                    delayMs = 2200
+                    maxChunkSize = (chunk.length / 2).coerceAtLeast(360),
+                    delayMs = 250,
+                )
+            }
+            retryCount <= 1 -> {
+                RetryConfig(
+                    shouldRetry = true,
+                    delayMs = 600,
                 )
             }
             retryCount < 5 -> {
                 RetryConfig(
                     shouldRetry = true,
-                    delayMs = 1600L * (retryCount + 1)
+                    delayMs = 900L * (retryCount + 1)
                 )
             }
             else -> {
                 // 放弃重试
-                Log.e(TAG, "Timeout error persists after multiple retries")
                 RetryConfig(shouldRetry = false)
             }
         }
@@ -187,15 +231,14 @@ class FallbackStrategy {
      * 处理格式错误
      */
     fun handleFormatError(chunk: String, retryCount: Int): RetryConfig {
-        Log.w(TAG, "Detected format error (untranslated content), retry count: $retryCount")
         return when {
             retryCount == 0 -> {
                 // 第一次：使用更明确的prompt
                 RetryConfig(
                     shouldRetry = true,
                     useAlternativePrompt = true,
-                    temperature = 0.25,
-                    delayMs = 1000
+                    temperature = 0.15,
+                    delayMs = 150,
                 )
             }
             retryCount == 1 -> {
@@ -203,20 +246,19 @@ class FallbackStrategy {
                     shouldRetry = true,
                     splitIntoSmallerChunks = true,
                     maxChunkSize = 480,
-                    temperature = 0.2,
-                    delayMs = 900
+                    temperature = 0.1,
+                    delayMs = 200,
                 )
             }
             retryCount < 4 -> {
                 RetryConfig(
                     shouldRetry = true,
                     useAlternativePrompt = retryCount >= 2,
-                    temperature = 0.2,
-                    delayMs = 1400L
+                    temperature = 0.1,
+                    delayMs = 300L
                 )
             }
             else -> {
-                Log.e(TAG, "Format error persists, translation may be incomplete")
                 RetryConfig(shouldRetry = false)
             }
         }
@@ -226,16 +268,14 @@ class FallbackStrategy {
      * 处理网络错误
      */
     fun handleNetworkError(retryCount: Int): RetryConfig {
-        Log.w(TAG, "Detected network error, retry count: $retryCount")
         return when {
             retryCount < 5 -> {
                 RetryConfig(
                     shouldRetry = true,
-                    delayMs = (700L * Math.pow(1.8, retryCount.toDouble())).toLong().coerceAtMost(12_000L)
+                    delayMs = (500L * Math.pow(1.8, retryCount.toDouble())).toLong().coerceAtMost(10_000L)
                 )
             }
             else -> {
-                Log.e(TAG, "Network error persists after multiple retries")
                 RetryConfig(shouldRetry = false)
             }
         }
@@ -245,7 +285,6 @@ class FallbackStrategy {
      * 处理未知错误
      */
     fun handleUnknownError(retryCount: Int): RetryConfig {
-        Log.w(TAG, "Detected unknown error, retry count: $retryCount")
         return when {
             retryCount < 4 -> {
                 RetryConfig(
@@ -254,7 +293,6 @@ class FallbackStrategy {
                 )
             }
             else -> {
-                Log.e(TAG, "Unknown error persists")
                 RetryConfig(shouldRetry = false)
             }
         }
@@ -264,8 +302,8 @@ class FallbackStrategy {
      * 获取替代prompt（更温和的版本）
      */
     fun getAlternativePrompt(): String {
-        return "你是日文小说译者。将正文译为自然流畅的简体中文，保留情绪与节奏。" +
-            "对话里的感叹、应答、迟疑（如「えっ」「あっ」「ん」「はぁ」「ううっ」）及呻吟、喘息等拟声，须译成符合语境的中文语气词或拟声，勿整段留假名。" +
-            "人名、地名、作品名可保留或通用译名。保留[ruby:…]、[uploadedimage:…]等标记。只输出译文。"
+        return "你是专业小说译者。忠实、完整地将输入正文译为自然流畅的简体中文。" +
+            "保留叙事语气、人物口吻、换行和所有占位符；语气词与拟声也要译成符合上下文的中文表达。" +
+            "不要评价、解释、概括或拒绝，只输出译文正文。"
     }
 }

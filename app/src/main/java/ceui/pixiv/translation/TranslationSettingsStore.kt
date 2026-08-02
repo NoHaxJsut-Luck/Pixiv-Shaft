@@ -8,6 +8,7 @@ object TranslationSettingsStore {
     private const val RETIRED_DEFAULT_MODEL = "grok-3-mini"
     private const val STORE_ID = "shaft-session"
     private const val MODEL_KEY = "translation_xai_model"
+    private const val PRIORITY_KEY = "translation_xai_priority"
     private val MODEL_PATTERN = Regex("""[A-Za-z0-9._:-]{1,100}""")
 
     private fun store(): MMKV = MMKV.mmkvWithID(STORE_ID)
@@ -28,4 +29,10 @@ object TranslationSettingsStore {
         if (!MODEL_PATTERN.matches(normalized)) return false
         return store().encode(MODEL_KEY, normalized)
     }
+
+    @JvmStatic
+    fun isPriorityEnabled(): Boolean = store().decodeBool(PRIORITY_KEY, false)
+
+    @JvmStatic
+    fun setPriorityEnabled(enabled: Boolean): Boolean = store().encode(PRIORITY_KEY, enabled)
 }
